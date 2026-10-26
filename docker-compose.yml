@@ -1,0 +1,44 @@
+# docker-compose.yml — VaultRealm development/production stack
+# Usage: docker compose up -d
+
+services:
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - PANEL_SECRET=${PANEL_SECRET}
+      - DATA_DIR=/srv/vaultrealm/data
+      - PORT=3001
+      - PORT_RANGE=25000-29999
+      - HOST_RAM_BUDGET_PCT=85
+      - NODE_ENV=production
+      - CORS_ORIGIN=https://${DOMAIN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/vaultrealm/data:/srv/vaultrealm/data
+    networks: [web]
+    labels:
+      - "gamepanel.component=panel"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [web]
+    depends_on: [panel]
+
+networks:
+  web:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

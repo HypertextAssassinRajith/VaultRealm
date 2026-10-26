@@ -1,0 +1,552 @@
+import { useState, useEffect, useRef } from 'react';
+import {
+  api,
+  type ServerDetail,
+  type DiagnosisFinding,
+  type TimelineEvent,
+  type ApiError,
+} from '../api/client';
+import { useToast } from './Toast';
+
+interface ServerViewProps {
+  serverId: string;
+  onBack: () => void;
+  onDelete: () => void;
+}
+
+export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
+  const [server, setServer] = useState<ServerDetail | null>(null);
+  const [activeTab, setActiveTab] = useState<'overview' | 'console' | 'debug' | 'settings'>('overview');
+  const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
+  const [commandInput, setCommandInput] = useState('');
+  const [findings, setFindings] = useState<DiagnosisFinding[]>([]);
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+
+  const consoleBottomRef = useRef<HTMLDivElement>(null);
+  const { addToast } = useToast();
+
+  const fetchServer = async () => {
+    try {
+      const data = await api.getServer(serverId);
+      setServer(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchDiagnosis = async () => {
+    try {
+      const data = await api.getDiagnosis(serverId);
+      setFindings(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchEvents = async () => {
+    try {
+      const data = await api.getEvents(serverId);
+      setEvents(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchServer();
+    const interval = setInterval(fetchServer, 4000);
+    return () => clearInterval(interval);
+  }, [serverId]);
+
+  useEffect(() => {
+    if (activeTab === 'debug') {
+      fetchDiagnosis();
+      fetchEvents();
+    }
+  }, [activeTab, serverId]);
+
+  // WebSocket for console logs & stats
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/servers/${serverId}`;
+    let ws: WebSocket | null = null;
+
+    try {
+      ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'log') {
+            setConsoleLogs((prev) => [...prev.slice(-400), String(msg.data)]);
+          } else if (msg.type === 'status') {
+            setServer((prev) => (prev ? { ...prev, status: msg.data } : null));
+          } else if (msg.type === 'command_ack') {
+            const out = msg.data.output;
+            setConsoleLogs((prev) => [...prev, `> ${out}`]);
+          }
+        } catch {
+          // ignore
+        }
+      };
+    } catch (err) {
+      console.error('WebSocket connection error:', err);
+    }
+
+    return () => {
+      ws?.close();
+    };
+  }, [serverId]);
+
+  useEffect(() => {
+    consoleBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [consoleLogs]);
+
+  const handlePowerAction = async (action: 'start' | 'stop' | 'restart' | 'kill') => {
+    setLoadingAction(action);
+    try {
+      if (action === 'start') await api.startServer(serverId);
+      if (action === 'stop') await api.stopServer(serverId);
+      if (action === 'restart') await api.restartServer(serverId);
+      if (action === 'kill') await api.killServer(serverId);
+
+      addToast({ type: 'success', title: `Server ${action} initiated.` });
+      await fetchServer();
+    } catch (err) {
+      const error = err as ApiError;
+      addToast({ type: 'error', title: `Failed to ${action} server`, message: error.message });
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleSendCommand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commandInput.trim()) return;
+
+    const cmd = commandInput;
+    setCommandInput('');
+    setConsoleLogs((prev) => [...prev, `$ ${cmd}`]);
+
+    try {
+      const res = await api.sendCommand(serverId, cmd);
+      setConsoleLogs((prev) => [...prev, res.output]);
+    } catch (err) {
+      const error = err as ApiError;
+      addToast({ type: 'error', title: 'Command failed', message: error.message });
+    }
+  };
+
+  const handleApplyFix = async (fix: { type: string; payload?: Record<string, unknown> }) => {
+    try {
+      const res = await api.applyFix(serverId, fix);
+      addToast({ type: 'success', title: 'Fix Applied', message: res.message });
+      await fetchServer();
+      await fetchDiagnosis();
+    } catch (err) {
+      const error = err as ApiError;
+      addToast({ type: 'error', title: 'Could not apply fix', message: error.message });
+    }
+  };
+
+  const handleDeleteServer = async () => {
+    if (!confirm('Are you sure you want to permanently delete this server and its persistent volume?')) {
+      return;
+    }
+    try {
+      await api.deleteServer(serverId);
+      addToast({ type: 'success', title: 'Server deleted successfully.' });
+      onDelete();
+    } catch (err) {
+      const error = err as ApiError;
+      addToast({ type: 'error', title: 'Delete Failed', message: error.message });
+    }
+  };
+
+  if (!server) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <div className="text-center">
+          <div className="inline-block animate-spin text-2xl text-primary mb-2">⟳</div>
+          <p className="text-xs text-muted-foreground">Loading server metrics...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const primaryPort = server.ports[0];
+  const joinAddress = primaryPort ? `${window.location.hostname}:${primaryPort.hostPort}` : 'N/A';
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {/* Top Navigation & Status */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="btn btn-secondary btn-sm"
+          >
+            ← Back
+          </button>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-foreground tracking-tight">{server.name}</h1>
+              <span
+                className={`badge ${
+                  server.status === 'running'
+                    ? 'badge-success'
+                    : server.status === 'starting' || server.status === 'pulling'
+                      ? 'badge-warning animate-pulse'
+                      : server.status === 'error' || server.status === 'crashed'
+                        ? 'badge-error'
+                        : 'badge-neutral'
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    server.status === 'running'
+                      ? 'bg-emerald-400'
+                      : server.status === 'error' || server.status === 'crashed'
+                        ? 'bg-red-400'
+                        : 'bg-amber-400'
+                  }`}
+                />
+                {server.status}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="badge badge-primary text-[10px] py-0 px-2">{server.templateName}</span>
+              <span className="text-xs text-muted-foreground">•</span>
+              <span className="text-xs text-muted-foreground">Connect:</span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(joinAddress);
+                  addToast({ type: 'info', title: 'Address copied to clipboard' });
+                }}
+                className="font-mono text-xs text-primary hover:underline cursor-pointer bg-card-subtle px-2 py-0.5 rounded border border-border/60 flex items-center gap-1"
+                title="Click to copy address"
+              >
+                <span>{joinAddress}</span>
+                <span className="text-[10px]">📋</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Power Actions */}
+        <div className="flex items-center gap-2">
+          {server.status !== 'running' ? (
+            <button
+              onClick={() => handlePowerAction('start')}
+              disabled={loadingAction === 'start'}
+              className="btn btn-primary btn-sm"
+            >
+              ▶ Start Server
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => handlePowerAction('restart')}
+                disabled={loadingAction === 'restart'}
+                className="btn btn-secondary btn-sm"
+              >
+                🔄 Restart
+              </button>
+              <button
+                onClick={() => handlePowerAction('stop')}
+                disabled={loadingAction === 'stop'}
+                className="btn btn-secondary btn-sm text-amber-400 hover:text-amber-300 border-amber-500/30"
+              >
+                ⏹ Stop
+              </button>
+              <button
+                onClick={() => handlePowerAction('kill')}
+                disabled={loadingAction === 'kill'}
+                className="btn btn-danger btn-sm"
+              >
+                ⚠️ Kill
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs Strip */}
+      <div className="flex border-b border-border gap-1 overflow-x-auto">
+        {[
+          { id: 'overview', label: 'Overview', icon: '📊' },
+          { id: 'console', label: 'Live Console', icon: '💻' },
+          { id: 'debug', label: 'Auto-Diagnosis', icon: '🔍' },
+          { id: 'settings', label: 'Settings', icon: '⚙️' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as 'overview' | 'console' | 'debug' | 'settings')}
+            className={`py-2 px-4 text-xs font-semibold rounded-t-lg transition-all cursor-pointer flex items-center gap-2 border-b-2 -mb-px ${
+              activeTab === tab.id
+                ? 'border-primary text-primary bg-primary/10'
+                : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
+            }`}
+          >
+            <span>{tab.icon}</span>
+            <span>{tab.label}</span>
+            {tab.id === 'debug' && findings.length > 0 && (
+              <span className="badge badge-error text-[10px] py-0 px-1.5 ml-1">
+                {findings.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab: Overview */}
+      {activeTab === 'overview' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="card p-5 border border-border/80">
+            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
+              Memory Allocation
+            </span>
+            <div className="text-2xl font-bold font-mono text-foreground">
+              {server.ramMb} <span className="text-sm font-normal text-muted-foreground">MB</span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-1.5 mt-3 overflow-hidden">
+              <div
+                className="bg-primary h-full rounded-full"
+                style={{ width: `${Math.min(100, (server.ramMb / 8192) * 100)}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="card p-5 border border-border/80">
+            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
+              CPU Limit
+            </span>
+            <div className="text-2xl font-bold font-mono text-foreground">
+              {server.cpuLimit} <span className="text-sm font-normal text-muted-foreground">Cores</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">Shared container allocation</p>
+          </div>
+
+          <div className="card p-5 border border-border/80">
+            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
+              Port Bindings
+            </span>
+            <div className="space-y-1 mt-1">
+              {server.ports.map((p) => (
+                <div key={p.name} className="flex justify-between text-xs font-mono">
+                  <span className="text-muted-foreground">{p.name}:</span>
+                  <span className="text-primary">{p.hostPort} ➔ {p.containerPort}/{p.protocol}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Console */}
+      {activeTab === 'console' && (
+        <div className="card overflow-hidden flex flex-col h-[540px] bg-black/95 shadow-xl">
+          <div className="px-4 py-3 bg-card-subtle border-b border-border flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <span className="flex gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500/80 inline-block" />
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-500/80 inline-block" />
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80 inline-block" />
+              </span>
+              <span className="font-mono text-[11px] text-muted-foreground ml-2">Live Terminal • {server.name}</span>
+            </div>
+            <button
+              onClick={() => setConsoleLogs([])}
+              className="btn btn-ghost btn-sm text-[11px] py-1 px-2"
+            >
+              Clear Buffer
+            </button>
+          </div>
+          <div className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1">
+            {consoleLogs.length === 0 ? (
+              <div className="text-muted-foreground italic">Connecting to live console stream...</div>
+            ) : (
+              consoleLogs.map((line, idx) => (
+                <div
+                  key={idx}
+                  className={`leading-relaxed whitespace-pre-wrap ${
+                    line.includes('ERROR') || line.includes('Exception')
+                      ? 'text-red-400'
+                      : line.includes('WARN')
+                        ? 'text-amber-400'
+                        : line.startsWith('$') || line.startsWith('>')
+                          ? 'text-primary font-bold'
+                          : 'text-zinc-300'
+                  }`}
+                >
+                  {line}
+                </div>
+              ))
+            )}
+            <div ref={consoleBottomRef} />
+          </div>
+          <form onSubmit={handleSendCommand} className="p-3 border-t border-border bg-card-subtle flex gap-2">
+            <input
+              type="text"
+              value={commandInput}
+              onChange={(e) => setCommandInput(e.target.value)}
+              placeholder="Send command to console (e.g. say Hello, time set day)..."
+              className="input flex-1 font-mono text-xs"
+            />
+            <button type="submit" className="btn btn-primary btn-sm px-4">
+              Send
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Tab: Debug */}
+      {activeTab === 'debug' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="font-bold text-base text-foreground">Auto-Diagnosis Engine</h3>
+              <p className="text-xs text-muted-foreground">
+                Automated error inspection analyzing container state, exit codes, and logs
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={fetchDiagnosis}
+                className="btn btn-secondary text-xs py-1.5 px-3"
+              >
+                Re-diagnose
+              </button>
+              <a
+                href={api.getDebugBundleUrl(serverId)}
+                download={`vaultrealm-debug-${serverId}.zip`}
+                className="btn btn-primary text-xs py-1.5 px-3 font-semibold flex items-center gap-1.5"
+              >
+                📦 Download Debug Bundle (.zip)
+              </a>
+            </div>
+          </div>
+
+          {/* Findings List */}
+          {findings.length === 0 ? (
+            <div className="card p-8 border border-border/60 text-center">
+              <span className="text-2xl mb-2 block">✅</span>
+              <h4 className="font-bold text-sm text-foreground">No critical findings detected</h4>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                The diagnosis engine analyzed server logs and container status. No known error patterns or crash loops were found.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {findings.map((f, i) => (
+                <div
+                  key={i}
+                  className={`card p-5 border transition-all ${
+                    f.severity === 'error'
+                      ? 'border-destructive/40 bg-destructive/5'
+                      : f.severity === 'warn'
+                        ? 'border-amber-500/40 bg-amber-500/5'
+                        : 'border-blue-500/40 bg-blue-500/5'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                            f.severity === 'error'
+                              ? 'bg-destructive text-white'
+                              : f.severity === 'warn'
+                                ? 'bg-amber-500 text-black'
+                                : 'bg-blue-500 text-white'
+                          }`}
+                        >
+                          {f.severity}
+                        </span>
+                        <h4 className="font-bold text-sm text-foreground">{f.title}</h4>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">{f.explanation}</p>
+                      {f.evidence && f.evidence.length > 0 && (
+                        <div className="mt-2 text-xs font-mono bg-black/40 p-2 rounded border border-border/40 text-red-300">
+                          {f.evidence[0]}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Actionable Fix Buttons */}
+                    <div className="flex flex-col gap-2 shrink-0">
+                      {f.fixes.map((fix, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleApplyFix(fix.action)}
+                          className="btn btn-primary text-xs py-1.5 px-3 font-semibold shadow glow-primary cursor-pointer text-left"
+                        >
+                          ⚡ {fix.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Event Timeline */}
+          <div>
+            <h4 className="font-bold text-sm text-foreground mb-3">Event Timeline</h4>
+            <div className="card p-4 border border-border/60 space-y-3 max-h-72 overflow-y-auto">
+              {events.map((evt) => (
+                <div key={evt.id} className="text-xs flex items-start gap-3 border-b border-border/30 pb-2">
+                  <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                    {new Date(evt.ts).toLocaleTimeString()}
+                  </span>
+                  <div className="flex-1">
+                    <span className="font-semibold text-foreground mr-2 font-mono text-[11px] text-primary">
+                      [{evt.kind}]
+                    </span>
+                    <span className="text-zinc-300">{evt.message}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Settings */}
+      {activeTab === 'settings' && (
+        <div className="space-y-6">
+          <div className="card p-6 border border-border/80 space-y-4">
+            <h3 className="font-bold text-base text-foreground">Server Specifications</h3>
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-muted-foreground block">Server ID</span>
+                <span className="font-mono text-foreground">{server.id}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block">Created At</span>
+                <span className="font-mono text-foreground">
+                  {new Date(server.createdAt).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-6 border border-destructive/40 bg-destructive/5 space-y-3">
+            <h3 className="font-bold text-base text-destructive">Danger Zone</h3>
+            <p className="text-xs text-muted-foreground">
+              Permanently stops the container and purges the persistent storage volume. This action cannot be undone.
+            </p>
+            <button
+              onClick={handleDeleteServer}
+              className="btn bg-destructive hover:bg-destructive/90 text-white text-xs py-2 px-4 font-bold cursor-pointer"
+            >
+              Delete Server Permanently
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

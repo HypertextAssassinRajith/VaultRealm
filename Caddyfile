@@ -1,0 +1,30 @@
+# Caddyfile — VaultRealm reverse proxy with automatic TLS
+# Replace {$DOMAIN} with your domain (e.g. panel.example.com)
+
+{$DOMAIN} {
+  # API and WebSocket routes
+  handle /api/* {
+    reverse_proxy panel:3001
+  }
+
+  handle /ws/* {
+    reverse_proxy panel:3001
+  }
+
+  handle /healthz {
+    reverse_proxy panel:3001
+  }
+
+  # Frontend (served by panel in production, or Vite in dev)
+  handle {
+    reverse_proxy panel:3001
+  }
+
+  # Security headers
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy strict-origin-when-cross-origin
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  }
+}

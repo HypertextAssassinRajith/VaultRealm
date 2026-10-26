@@ -1,0 +1,82 @@
+import { z } from 'zod';
+
+const envSchema = z.object({
+  /** Port for the Fastify API server */
+  PORT: z.coerce.number().default(3001),
+
+  /** Node environment */
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+
+  /** Secret for JWT/session signing */
+  PANEL_SECRET: z.string().min(16, 'PANEL_SECRET must be at least 16 characters'),
+
+  /** Path to the data directory (SQLite, server volumes, backups) */
+  DATA_DIR: z.string().default('./data'),
+
+  /** Port range for game servers (inclusive) */
+  PORT_RANGE: z
+    .string()
+    .default('25000-29999')
+    .transform((val) => {
+      const [start, end] = val.split('-').map(Number);
+      if (!start || !end || start >= end) {
+        throw new Error('PORT_RANGE must be in format "start-end" (e.g. 25000-29999)');
+      }
+      return { start, end };
+    }),
+
+  /** Maximum percentage of host RAM to allocate across all game servers */
+  HOST_RAM_BUDGET_PCT: z.coerce.number().min(10).max(100).default(85),
+
+  /** Log level */
+  LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+
+  /** Allow LLM endpoints pointing to private IPs (for local Ollama etc.) */
+  ALLOW_PRIVATE_LLM_ENDPOINTS: z
+    .string()
+    .default('false')
+    .transform((val) => val === 'true'),
+
+  /** Frontend origin for CORS */
+  CORS_ORIGIN: z.string().default('http://localhost:5173'),
+});
+
+export type Config = z.infer<typeof envSchema>;
+
+let _config: Config | null = null;
+
+/**
+ * Parse and validate environment variables. Caches the result.
+ * In tests, pass overrides to avoid needing real env vars.
+ */
+export function loadConfig(overrides?: Record<string, string>): Config {
+  const source = overrides ?? process.env;
+  const result = envSchema.safeParse(source);
+
+  if (!result.success) {
+    const formatted = result.error.issues
+      .map((issue) => `  ${issue.path.join('.')}: ${issue.message}`)
+      .join('\n');
+    throw new Error(`Invalid configuration:\n${formatted}`);
+  }
+
+  _config = result.data;
+  return _config;
+}
+
+/**
+ * Get the cached config. Throws if loadConfig() hasn't been called.
+ */
+export function getConfig(): Config {
+  if (!_config) {
+    throw new Error('Config not loaded. Call loadConfig() first.');
+  }
+  return _config;
+}
+
+/**
+ * Reset cached config (for tests).
+ */
+export function resetConfig(): void {
+  _config = null;
+}
