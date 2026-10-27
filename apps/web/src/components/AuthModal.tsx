@@ -181,6 +181,19 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
             )}
           </button>
         </form>
+
+        <div className="mt-6 pt-4 border-t border-border/60 text-center text-xs text-muted-foreground flex items-center justify-center gap-1.5 font-mono">
+          <span>Engineered by</span>
+          <a
+            href="https://www.vaultsoftlabs.tech/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-foreground hover:text-primary transition-colors inline-flex items-center gap-0.5"
+          >
+            <span>VaultSoft Labs</span>
+            <span className="text-[10px] text-primary">↗</span>
+          </a>
+        </div>
       </div>
     </div>
   );
