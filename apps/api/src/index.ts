@@ -7,6 +7,7 @@ import { initDatabase, runMigrations, closeDatabase } from './db/index.js';
 import { authRoutes } from './auth/index.js';
 import { serverRoutes, setDockerDriver } from './servers/index.js';
 import { registerRealtimeGateway } from './realtime/index.js';
+import { companionRoutes, botRoutes, registerGateway } from './companion/index.js';
 import { MockDockerDriver } from './docker/mock.js';
 import { RealDockerDriver } from './docker/real.js';
 
@@ -68,6 +69,9 @@ async function main() {
   await registerRealtimeGateway(app);
   await app.register(authRoutes);
   await app.register(serverRoutes);
+  await app.register(companionRoutes);
+  await app.register(botRoutes);
+  await registerGateway(app);
 
   // ── Error handler ──────────────────────────────────────────────────────────
   app.setErrorHandler((error: Error & { statusCode?: number; code?: string; issues?: Array<{ path: (string | number)[]; message: string }> }, _request, reply) => {

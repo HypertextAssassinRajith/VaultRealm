@@ -190,6 +190,10 @@ export function runMigrations(): void {
       daily_token_budget INTEGER NOT NULL DEFAULT 200000,
       rpm_limit INTEGER NOT NULL DEFAULT 10,
       status TEXT NOT NULL DEFAULT 'offline' CHECK(status IN ('offline','joining','online','error')),
+      container_id TEXT,
+      last_spawned_at TEXT,
+      last_despawned_at TEXT,
+      error_message TEXT,
       ms_token_enc TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

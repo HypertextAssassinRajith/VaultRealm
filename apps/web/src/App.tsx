@@ -91,10 +91,20 @@ export function AppContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center mx-auto mb-3 animate-pulse">
-            <span className="font-bold text-primary">V</span>
-          </div>
-          <p className="text-xs text-muted-foreground font-mono">Loading VaultRealm...</p>
+          <img
+            src="/VR2.jpg"
+            alt="VaultRealm"
+            className="h-16 w-auto object-contain mx-auto mb-4 rounded-xl shadow-lg border border-border animate-pulse"
+          />
+          <p className="text-xs text-muted-foreground font-mono mb-1">Loading VaultRealm...</p>
+          <a
+            href="https://www.vaultsoftlabs.tech/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-muted-foreground/80 hover:text-primary transition-colors font-mono inline-flex items-center gap-1"
+          >
+            by VaultSoft Labs <span className="text-[9px]">↗</span>
+          </a>
         </div>
       </div>
     );
@@ -104,25 +114,38 @@ export function AppContent() {
     <div className={`w-full min-h-screen flex flex-col bg-background text-foreground ${theme}`}>
       {/* ── Navigation Bar ────────────────────────────────────────────────── */}
       <header className="w-full border-b border-border bg-card/80 backdrop-blur-lg sticky top-0 z-40 shadow-sm">
-        <div className="w-full mx-auto max-w-[1600px] px-6 sm:px-8 lg:px-10 py-4 flex items-center justify-between gap-4">
+        <div className="w-full mx-auto max-w-[1600px] px-6 sm:px-8 lg:px-10 py-3.5 flex items-center justify-between gap-4">
           <div
             onClick={() => {
               setSelectedServerId(null);
               setShowAdmin(false);
             }}
-            className="flex items-center gap-3 cursor-pointer group select-none"
+            className="flex items-center gap-3.5 cursor-pointer group select-none"
           >
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-md glow-primary group-hover:scale-105 transition-transform">
-              <span className="text-sm font-black text-white">V</span>
-            </div>
-            <div>
+            <img
+              src="/VR2.jpg"
+              alt="VaultRealm"
+              className="h-11 w-auto object-contain rounded-lg shadow-sm border border-border/40 group-hover:scale-105 transition-transform"
+            />
+            <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <span className="text-lg font-black gradient-text tracking-tight">VaultRealm</span>
-                <span className="badge badge-primary text-[10px] py-0.5 px-2">v0.5</span>
+                <span className="badge badge-primary text-[10px] py-0.5 px-2 font-mono">v0.5</span>
+                <span className="text-[11px] text-muted-foreground hidden sm:inline-block font-mono">
+                  Panel
+                </span>
               </div>
-              <span className="text-[11px] text-muted-foreground block font-mono">
-                Game Server Panel
-              </span>
+              <a
+                href="https://www.vaultsoftlabs.tech/"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-[11px] text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 font-mono tracking-tight mt-0.5"
+                title="Engineered by VaultSoft Labs"
+              >
+                <span>by</span>
+                <span className="font-semibold text-foreground/90 hover:underline">VaultSoft Labs</span>
+                <span className="text-[9px] text-primary opacity-70">↗</span>
+              </a>
             </div>
           </div>
 
@@ -227,8 +250,42 @@ export function AppContent() {
       )}
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
-      <footer className="w-full border-t border-border py-4 text-center text-xs text-muted-foreground">
-        VaultRealm Self-Hosted Control Panel • Lightweight & Autonomous
+      <footer className="w-full border-t border-border bg-card/40 backdrop-blur-sm mt-auto">
+        <div className="w-full mx-auto max-w-[1600px] px-6 sm:px-8 lg:px-10 py-5 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
+            <span className="font-semibold text-foreground">VaultRealm</span>
+            <span className="text-border">•</span>
+            <span>Engineered by</span>
+            <a
+              href="https://www.vaultsoftlabs.tech/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-foreground hover:text-primary transition-colors inline-flex items-center gap-1 group"
+            >
+              <span>VaultSoft Labs</span>
+              <span className="text-[10px] text-primary opacity-70 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform">↗</span>
+            </a>
+            <span className="text-border">•</span>
+            <span>All rights reserved</span>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Autonomous Game Cloud
+            </span>
+            <span className="text-border">•</span>
+            <a
+              href="https://www.vaultsoftlabs.tech/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-primary transition-colors inline-flex items-center gap-1"
+            >
+              <span>vaultsoftlabs.tech</span>
+              <span className="text-[9px] opacity-70">↗</span>
+            </a>
+          </div>
+        </div>
       </footer>
     </div>
   );

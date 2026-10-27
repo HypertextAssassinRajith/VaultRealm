@@ -242,6 +242,10 @@ export const bots = sqliteTable('bots', {
   status: text('status', { enum: ['offline', 'joining', 'online', 'error'] })
     .notNull()
     .default('offline'),
+  containerId: text('container_id'),
+  lastSpawnedAt: text('last_spawned_at'),
+  lastDespawnedAt: text('last_despawned_at'),
+  errorMessage: text('error_message'),
   msTokenEnc: text('ms_token_enc'),
   createdAt: text('created_at')
     .notNull()

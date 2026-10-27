@@ -56,9 +56,11 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-fade-in">
       <div className="card max-w-md w-full p-8 border border-border shadow-2xl relative glow-primary">
         <div className="text-center mb-6">
-          <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center mx-auto mb-3">
-            <span className="text-xl font-bold text-primary">V</span>
-          </div>
+          <img
+            src="/VR2.jpg"
+            alt="VaultRealm"
+            className="h-14 w-auto object-contain mx-auto mb-4 rounded-xl shadow-md border border-border/50"
+          />
           <h2 className="text-2xl font-bold gradient-text">
             {needsSetup
               ? 'Welcome to VaultRealm'
@@ -179,6 +181,19 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
             )}
           </button>
         </form>
+
+        <div className="mt-6 pt-4 border-t border-border/60 text-center text-xs text-muted-foreground flex items-center justify-center gap-1.5 font-mono">
+          <span>Engineered by</span>
+          <a
+            href="https://www.vaultsoftlabs.tech/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-foreground hover:text-primary transition-colors inline-flex items-center gap-0.5"
+          >
+            <span>VaultSoft Labs</span>
+            <span className="text-[10px] text-primary">↗</span>
+          </a>
+        </div>
       </div>
     </div>
   );

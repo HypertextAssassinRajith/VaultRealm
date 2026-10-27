@@ -65,23 +65,27 @@ export async function can(
   if (user.role === 'admin') return true;
 
   // ── Global actions (non-server-scoped) ─────────────────────────────────────
-  switch (action) {
-    case 'server:list':
-    case 'server:create':
-      return true; // all authenticated users can list/create (quota-limited)
+  if (!serverId) {
+    switch (action) {
+      case 'server:list':
+      case 'server:create':
+      case 'companion:manage':
+      case 'companion:view':
+        return true; // authenticated users can manage/view their own resources (endpoints, servers)
 
-    case 'auth:manage-invites':
-      return false; // only admin
+      case 'auth:manage-invites':
+      case 'admin:users':
+      case 'admin:system':
+      case 'admin:invites':
+      case 'admin:audit':
+        return false; // only admin
 
-    case 'admin:users':
-    case 'admin:system':
-    case 'admin:invites':
-    case 'admin:audit':
-      return false; // only admin
+      default:
+        return false;
+    }
   }
 
   // ── Server-scoped actions ──────────────────────────────────────────────────
-  if (!serverId) return false;
 
   const db = getDatabase();
 

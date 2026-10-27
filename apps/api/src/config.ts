@@ -37,6 +37,12 @@ const envSchema = z.object({
     .default('false')
     .transform((val) => val === 'true'),
 
+  /** Bot-runner Docker image */
+  BOT_RUNNER_IMAGE: z.string().default('vaultrealm/bot-runner:latest'),
+
+  /** Base URL for panel gateway reachable by containers */
+  PANEL_GATEWAY_URL: z.string().default('http://host.docker.internal:3001'),
+
   /** Frontend origin for CORS */
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 });

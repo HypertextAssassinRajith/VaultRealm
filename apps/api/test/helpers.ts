@@ -12,6 +12,7 @@ import { initDatabase, runMigrations, closeDatabase } from '../src/db/index.js';
 import { authRoutes } from '../src/auth/index.js';
 import { serverRoutes, setDockerDriver } from '../src/servers/index.js';
 import { registerRealtimeGateway } from '../src/realtime/index.js';
+import { companionRoutes, botRoutes, registerGateway } from '../src/companion/index.js';
 import { MockDockerDriver } from '../src/docker/mock.js';
 import { resetRateLimits } from '../src/auth/rate-limit.js';
 import { join } from 'node:path';
@@ -54,6 +55,9 @@ export async function buildTestApp(): Promise<FastifyInstance> {
   await registerRealtimeGateway(app);
   await app.register(authRoutes);
   await app.register(serverRoutes);
+  await app.register(companionRoutes);
+  await app.register(botRoutes);
+  await registerGateway(app);
 
   // Error handler (same as production)
   app.setErrorHandler((error: Error & { statusCode?: number; code?: string; issues?: Array<{ path: (string | number)[]; message: string }> }, _request, reply) => {
