@@ -91,9 +91,11 @@ export function AppContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center mx-auto mb-3 animate-pulse">
-            <span className="font-bold text-primary">V</span>
-          </div>
+          <img
+            src="/VR2.jpg"
+            alt="VaultRealm"
+            className="h-16 w-auto object-contain mx-auto mb-4 rounded-xl shadow-lg border border-border animate-pulse"
+          />
           <p className="text-xs text-muted-foreground font-mono">Loading VaultRealm...</p>
         </div>
       </div>
@@ -104,7 +106,7 @@ export function AppContent() {
     <div className={`w-full min-h-screen flex flex-col bg-background text-foreground ${theme}`}>
       {/* ── Navigation Bar ────────────────────────────────────────────────── */}
       <header className="w-full border-b border-border bg-card/80 backdrop-blur-lg sticky top-0 z-40 shadow-sm">
-        <div className="w-full mx-auto max-w-[1600px] px-6 sm:px-8 lg:px-10 py-4 flex items-center justify-between gap-4">
+        <div className="w-full mx-auto max-w-[1600px] px-6 sm:px-8 lg:px-10 py-3.5 flex items-center justify-between gap-4">
           <div
             onClick={() => {
               setSelectedServerId(null);
@@ -112,16 +114,15 @@ export function AppContent() {
             }}
             className="flex items-center gap-3 cursor-pointer group select-none"
           >
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-md glow-primary group-hover:scale-105 transition-transform">
-              <span className="text-sm font-black text-white">V</span>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-black gradient-text tracking-tight">VaultRealm</span>
-                <span className="badge badge-primary text-[10px] py-0.5 px-2">v0.5</span>
-              </div>
-              <span className="text-[11px] text-muted-foreground block font-mono">
-                Game Server Panel
+            <img
+              src="/VR2.jpg"
+              alt="VaultRealm"
+              className="h-11 w-auto object-contain rounded-lg shadow-sm border border-border/40 group-hover:scale-105 transition-transform"
+            />
+            <div className="flex items-center gap-2">
+              <span className="badge badge-primary text-[10px] py-0.5 px-2">v0.5</span>
+              <span className="text-[11px] text-muted-foreground hidden sm:inline-block font-mono">
+                Panel
               </span>
             </div>
           </div>
