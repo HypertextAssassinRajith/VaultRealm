@@ -11,11 +11,13 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 
 # pnpm is bundled with Node 22 via corepack
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN apk add --no-cache python3 make g++ && \
+    corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY apps/bot-runner/package.json apps/bot-runner/
 
 RUN pnpm install --frozen-lockfile
 
@@ -41,14 +43,17 @@ RUN pnpm --filter @vaultrealm/api run build
 FROM node:22-alpine AS production
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN apk add --no-cache python3 make g++ && \
+    corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 # Install production dependencies only
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY apps/bot-runner/package.json apps/bot-runner/
 
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod && \
+    apk del python3 make g++
 
 # Copy compiled API
 COPY --from=build-api /app/apps/api/dist/ apps/api/dist/
