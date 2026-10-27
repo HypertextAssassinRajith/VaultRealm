@@ -200,4 +200,141 @@ export const api = {
       body: JSON.stringify({ maxUses }),
     }),
   deleteInvite: (id: string) => request<{ message: string }>(`/api/admin/invites/${id}`, { method: 'DELETE' }),
+
+  // Companion & LLM Endpoints
+  listEndpointPresets: () => request<{ presets: LlmEndpointPreset[] }>('/api/llm-endpoints/presets'),
+  listEndpoints: () => request<{ endpoints: LlmEndpoint[] }>('/api/llm-endpoints'),
+  createEndpoint: (data: {
+    name: string;
+    baseUrl: string;
+    apiKey?: string;
+    defaultModel?: string;
+    timeoutS?: number;
+  }) => request<LlmEndpoint>('/api/llm-endpoints', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  updateEndpoint: (
+    id: string,
+    data: Partial<{
+      name: string;
+      baseUrl: string;
+      apiKey: string;
+      defaultModel: string;
+      timeoutS: number;
+    }>,
+  ) => request<{ id: string; updated: string[] }>(`/api/llm-endpoints/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  deleteEndpoint: (id: string) => request<void>(`/api/llm-endpoints/${id}`, { method: 'DELETE' }),
+  testEndpoint: (id: string, model?: string) =>
+    request<TestConnectionResult>(`/api/llm-endpoints/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
+  getCompanionUsage: (serverId: string) =>
+    request<CompanionUsage>(`/api/servers/${serverId}/companion/usage`),
+
+  // Bot management
+  getBot: (serverId: string) =>
+    request<{ configured: boolean; bot: BotDetail | null }>(`/api/servers/${serverId}/companion/bot`),
+  updateBot: (serverId: string, data: BotConfigInput) =>
+    request<{ id: string; serverId: string; name: string; status: string }>(`/api/servers/${serverId}/companion/bot`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  spawnBot: (serverId: string) =>
+    request<{ success: boolean; status: string; containerId: string }>(`/api/servers/${serverId}/companion/bot/spawn`, {
+      method: 'POST',
+    }),
+  despawnBot: (serverId: string) =>
+    request<{ success: boolean; status: string }>(`/api/servers/${serverId}/companion/bot/despawn`, {
+      method: 'POST',
+    }),
+  sendBotAction: (serverId: string, action: string, message?: string) =>
+    request<{ success: boolean; action: string }>(`/api/servers/${serverId}/companion/bot/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action, message }),
+    }),
 };
+
+export interface LlmEndpointPreset {
+  id: string;
+  name: string;
+  baseUrl: string;
+  defaultModel: string;
+}
+
+export interface LlmEndpoint {
+  id: string;
+  ownerId: string;
+  scope: string;
+  name: string;
+  baseUrl: string;
+  defaultModel: string | null;
+  lastFour: string | null;
+  hasKey: boolean;
+  supportsTools: boolean;
+  timeoutS: number;
+  createdAt: string;
+}
+
+export interface TestConnectionStep {
+  name: string;
+  status: 'pass' | 'warn' | 'fail';
+  message: string;
+}
+
+export interface TestConnectionResult {
+  steps: TestConnectionStep[];
+  supportsTools: boolean;
+}
+
+export interface CompanionUsage {
+  configured: boolean;
+  botId?: string;
+  status?: string;
+  dailyBudget?: number;
+  rpmLimit?: number;
+  today?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    requests: number;
+  };
+}
+
+export interface BotDetail {
+  id: string;
+  serverId: string;
+  endpointId: string;
+  name: string;
+  persona: string;
+  model: string | null;
+  mode: 'off' | 'manual' | 'auto-solo' | 'always';
+  authMode: 'offline' | 'microsoft' | 'proxy';
+  whoCanCommand: string;
+  proactive: boolean;
+  dailyTokenBudget: number;
+  rpmLimit: number;
+  status: 'offline' | 'joining' | 'online' | 'error';
+  containerId: string | null;
+  lastSpawnedAt: string | null;
+  lastDespawnedAt: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
+export interface BotConfigInput {
+  endpointId: string;
+  name?: string;
+  persona?: string;
+  model?: string | null;
+  mode?: 'off' | 'manual' | 'auto-solo' | 'always';
+  authMode?: 'offline' | 'microsoft' | 'proxy';
+  whoCanCommand?: string;
+  dailyTokenBudget?: number;
+  rpmLimit?: number;
+  proactive?: boolean;
+}
