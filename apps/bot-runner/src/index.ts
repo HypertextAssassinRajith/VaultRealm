@@ -30,6 +30,12 @@ function main() {
 
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
+    if (process.env.NODE_ENV !== 'production' && !process.env.BOT_ID) {
+      console.warn('[BotRunner] Standby mode: No BOT_ID configured.');
+      console.warn('[BotRunner] To test the companion bot standalone, copy .env.example to .env in apps/bot-runner.');
+      return;
+    }
+
     console.error('[BotRunner] Invalid environment configuration:');
     for (const issue of parsed.error.issues) {
       console.error(`  - ${issue.path.join('.')}: ${issue.message}`);
