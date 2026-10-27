@@ -17,6 +17,12 @@ const envSchema = z.object({
   PANEL_GATEWAY_URL: z.string().default('http://localhost:3001'),
   BOT_TOKEN: z.string().min(1, 'BOT_TOKEN is required'),
   MINECRAFT_VERSION: z.string().optional(),
+  OWNER_NAME: z.string().default('admin'),
+  TRUSTED_PLAYERS: z.string().optional(),
+  WHO_CAN_COMMAND: z.enum(['owner_only', 'trusted', 'everyone']).default('everyone'),
+  PROTECTED_ZONES_JSON: z.string().optional(),
+  SAVED_PLACES_JSON: z.string().optional(),
+  USE_JSON_FALLBACK: z.coerce.boolean().default(false),
 });
 
 function main() {
@@ -32,6 +38,29 @@ function main() {
   }
 
   const env = parsed.data;
+
+  let protectedZones = undefined;
+  if (env.PROTECTED_ZONES_JSON) {
+    try {
+      protectedZones = JSON.parse(env.PROTECTED_ZONES_JSON);
+    } catch {
+      console.warn('[BotRunner] Failed to parse PROTECTED_ZONES_JSON');
+    }
+  }
+
+  let savedPlaces = undefined;
+  if (env.SAVED_PLACES_JSON) {
+    try {
+      savedPlaces = JSON.parse(env.SAVED_PLACES_JSON);
+    } catch {
+      console.warn('[BotRunner] Failed to parse SAVED_PLACES_JSON');
+    }
+  }
+
+  const trustedPlayers = env.TRUSTED_PLAYERS
+    ? env.TRUSTED_PLAYERS.split(',').map((p) => p.trim()).filter(Boolean)
+    : [];
+
   const config: BotConfig = {
     botId: env.BOT_ID,
     botName: env.BOT_NAME,
@@ -43,6 +72,12 @@ function main() {
     panelGatewayUrl: env.PANEL_GATEWAY_URL,
     botToken: env.BOT_TOKEN,
     minecraftVersion: env.MINECRAFT_VERSION,
+    ownerName: env.OWNER_NAME,
+    trustedPlayers,
+    whoCanCommand: env.WHO_CAN_COMMAND,
+    protectedZones,
+    savedPlaces,
+    useJsonActionFallback: env.USE_JSON_FALLBACK,
   };
 
   const runner = new CompanionBotRunner(config);

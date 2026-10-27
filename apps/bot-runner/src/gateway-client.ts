@@ -5,13 +5,12 @@
  */
 
 import type { GatewayChatMessage, GatewayChatResponse } from './types.js';
+import type { ToolDefinition } from './skills/definitions.js';
 
-export interface CallGatewayOptions {
-  gatewayUrl: string;
-  botToken: string;
-  messages: GatewayChatMessage[];
-  maxTokens?: number;
-  timeoutMs?: number;
+export interface ChatCompletionResult {
+  role: string;
+  content: string | null;
+  tool_calls?: GatewayChatResponse['choices'][0]['message']['tool_calls'];
 }
 
 export class GatewayClient {
@@ -24,29 +23,44 @@ export class GatewayClient {
   }
 
   /**
-   * Request a chat completion from the panel gateway.
+   * Request a chat completion with optional tools from the panel gateway.
    */
-  async chat(messages: GatewayChatMessage[], maxTokens = 150, timeoutMs = 20000): Promise<string> {
+  async chatWithTools(
+    messages: GatewayChatMessage[],
+    tools?: ToolDefinition[],
+    maxTokens = 300,
+    timeoutMs = 25000,
+  ): Promise<ChatCompletionResult> {
     const url = `${this.gatewayUrl}/internal/llm/chat`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      const payload: Record<string, unknown> = {
+        messages,
+        max_tokens: maxTokens,
+      };
+
+      if (tools && tools.length > 0) {
+        payload.tools = tools;
+        payload.tool_choice = 'auto';
+      }
+
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.botToken}`,
         },
-        body: JSON.stringify({
-          messages,
-          max_tokens: maxTokens,
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
 
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({ message: res.statusText })) as { code?: string; message?: string };
+        const errJson = (await res.json().catch(() => ({ message: res.statusText }))) as {
+          code?: string;
+          message?: string;
+        };
         if (res.status === 429) {
           if (errJson.code === 'BUDGET_EXHAUSTED') {
             throw new Error('Daily token budget has been exhausted.');
@@ -56,9 +70,13 @@ export class GatewayClient {
         throw new Error(errJson.message ?? `Gateway error (${res.status})`);
       }
 
-      const data = await res.json() as GatewayChatResponse;
-      const content = data.choices?.[0]?.message?.content;
-      return content ?? '';
+      const data = (await res.json()) as GatewayChatResponse;
+      const choice = data.choices?.[0]?.message;
+      return {
+        role: choice?.role ?? 'assistant',
+        content: choice?.content ?? null,
+        tool_calls: choice?.tool_calls,
+      };
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
         throw new Error('LLM request timed out.');
@@ -67,5 +85,13 @@ export class GatewayClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Simple text-only chat completion (convenience helper).
+   */
+  async chat(messages: GatewayChatMessage[], maxTokens = 150, timeoutMs = 20000): Promise<string> {
+    const res = await this.chatWithTools(messages, undefined, maxTokens, timeoutMs);
+    return res.content ?? '';
   }
 }

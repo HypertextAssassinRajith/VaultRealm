@@ -1,7 +1,13 @@
 /**
  * Mineflayer Bot Lifecycle and Event Loop.
  *
- * Implements §9B.4 & §9B.5 of IMPLEMENTATION_PLAN.md.
+ * Implements §9B.4 & §9B.5 of IMPLEMENTATION_PLAN.md:
+ * - Bot connection & lifecycle
+ * - Pathfinder plugin loading (if available)
+ * - Addressing check (unaddressed chat produces 0 LLM calls)
+ * - Fast commands (!help, !stop, !come, !stay, !status)
+ * - Multi-step agent loop with skill execution, world safety, and code-enforced permissions
+ * - Death & respawn handling
  */
 
 import mineflayer from 'mineflayer';
@@ -10,17 +16,26 @@ import {
   isAddressedToBot,
   handleFastCommand,
   checkPlayerRateLimit,
-  sanitizeOutput,
-  formatPromptWithInjectionDefense,
 } from './chat.js';
 import { GatewayClient } from './gateway-client.js';
+import { SkillExecutor } from './skills/executor.js';
+import { runAgentTurn } from './agent-loop.js';
+import {
+  buildPerceptionSnapshot,
+  type EntitySummary,
+  type BlockSummary,
+} from './perception.js';
 
 export class CompanionBotRunner {
   private config: BotConfig;
   private bot: mineflayer.Bot | null = null;
   private gatewayClient: GatewayClient;
+  private executor: SkillExecutor | null = null;
   private isRunning = false;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private currentTask: string | null = null;
+  private lastActionResult: string | null = null;
+  private recentChat: Array<{ username: string; message: string }> = [];
 
   constructor(config: BotConfig) {
     this.config = config;
@@ -45,6 +60,10 @@ export class CompanionBotRunner {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    if (this.executor) {
+      this.executor.abortCurrent();
+      this.executor = null;
+    }
     if (this.bot) {
       this.bot.quit();
       this.bot = null;
@@ -53,7 +72,9 @@ export class CompanionBotRunner {
   }
 
   private connect(): void {
-    console.log(`[BotRunner] Connecting to ${this.config.serverHost}:${this.config.serverPort} as "${this.config.botName}" (auth: ${this.config.authMode})...`);
+    console.log(
+      `[BotRunner] Connecting to ${this.config.serverHost}:${this.config.serverPort} as "${this.config.botName}" (auth: ${this.config.authMode})...`,
+    );
 
     try {
       this.bot = mineflayer.createBot({
@@ -72,12 +93,35 @@ export class CompanionBotRunner {
   }
 
   private setupEventHandlers(bot: mineflayer.Bot): void {
-    bot.on('spawn', () => {
+    bot.on('spawn', async () => {
       console.log(`[BotRunner] "${this.config.botName}" successfully spawned into the game!`);
-      // Initial greeting
+
+      // Initialize pathfinder plugin if available
+      try {
+        const { pathfinder } = await import('mineflayer-pathfinder');
+        if (typeof bot.loadPlugin === 'function') {
+          bot.loadPlugin(pathfinder);
+        }
+      } catch (err) {
+        console.warn('[BotRunner] Could not load mineflayer-pathfinder plugin:', err);
+      }
+
+      // Initialize skill executor
+      this.executor = new SkillExecutor({
+        bot,
+        speaker: this.config.ownerName ?? 'admin',
+        protectedZones: this.config.protectedZones,
+        savedPlaces: this.config.savedPlaces,
+        onTaskChange: (task, result) => {
+          this.currentTask = task;
+          if (result) this.lastActionResult = result;
+        },
+      });
+
+      // Announce spawn (§9B.6: "Buddy here! Say 'Buddy, help'")
       setTimeout(() => {
         try {
-          bot.chat(`${this.config.botName} ready! Say "!help" or talk to me directly.`);
+          bot.chat(`${this.config.botName} here! Say "${this.config.botName}, help" or talk to me directly.`);
         } catch {
           // ignore chat error on initial spawn
         }
@@ -86,12 +130,28 @@ export class CompanionBotRunner {
 
     // Public chat listener
     bot.on('chat', (username: string, message: string) => {
+      this.recordChat(username, message);
       this.handleIncomingChat(username, message, false);
     });
 
     // Private whisper listener
     bot.on('whisper', (username: string, message: string) => {
+      this.recordChat(username, message);
       this.handleIncomingChat(username, message, true);
+    });
+
+    // Death handler (§9B.4: "on death it respawns and announces it")
+    bot.on('death', () => {
+      console.warn(`[BotRunner] "${this.config.botName}" died.`);
+      this.currentTask = null;
+      this.lastActionResult = 'Died in combat or hazard';
+      setTimeout(() => {
+        try {
+          bot.chat(`I died! Respawning now...`);
+        } catch {
+          // ignore
+        }
+      }, 1000);
     });
 
     bot.on('kicked', (reason: string) => {
@@ -111,15 +171,26 @@ export class CompanionBotRunner {
     });
   }
 
-  private async handleIncomingChat(username: string, message: string, isWhisper: boolean): Promise<void> {
-    if (!this.bot) return;
+  private recordChat(username: string, message: string): void {
+    this.recentChat.push({ username, message });
+    if (this.recentChat.length > 20) {
+      this.recentChat.shift();
+    }
+  }
+
+  private async handleIncomingChat(
+    username: string,
+    message: string,
+    isWhisper: boolean,
+  ): Promise<void> {
+    if (!this.bot || !this.executor) return;
 
     // Never respond to own messages
     if (username === this.config.botName || username === this.bot.username) {
       return;
     }
 
-    // 1. Addressing Check (§9B.5): Unaddressed messages produce zero LLM calls
+    // 1. Addressing Check (§9B.5): Unaddressed messages produce ZERO LLM calls
     const { addressed, content } = isAddressedToBot(message, this.config.botName, isWhisper);
     if (!addressed) {
       return;
@@ -130,8 +201,13 @@ export class CompanionBotRunner {
     // 2. Fast Commands (instant, zero LLM, work even if LLM is offline)
     const statusSnapshot = this.getStatusSnapshot();
     const fastCmd = handleFastCommand(content, this.config.botName, statusSnapshot);
-    if (fastCmd.isFastCommand && fastCmd.reply) {
-      this.bot.chat(fastCmd.reply);
+    if (fastCmd.isFastCommand) {
+      if (fastCmd.command === 'stop') {
+        this.executor.abortCurrent();
+      }
+      if (fastCmd.reply) {
+        this.bot.chat(fastCmd.reply);
+      }
       return;
     }
 
@@ -141,26 +217,108 @@ export class CompanionBotRunner {
       return;
     }
 
-    // 4. Natural Language Chat through the LLM Gateway
+    // 4. Update executor context with current speaker
+    this.executor.updateContext({
+      speaker: username,
+      protectedZones: this.config.protectedZones,
+      savedPlaces: this.config.savedPlaces,
+    });
+
+    // 5. Build rich perception snapshot
+    const perception = this.generatePerceptionSnapshot();
+
+    // 6. Execute multi-step Agent Loop with code-enforced permissions & safety
     try {
-      const messages = formatPromptWithInjectionDefense(
-        username,
-        content,
-        this.config.persona,
-        this.config.botName,
-      );
-
-      const reply = await this.gatewayClient.chat(messages);
-      const sanitized = sanitizeOutput(reply);
-
-      if (sanitized) {
-        this.bot.chat(sanitized);
-      }
+      await runAgentTurn({
+        speaker: username,
+        userMessage: content,
+        config: this.config,
+        perceptionSnapshot: perception,
+        gatewayClient: this.gatewayClient,
+        executor: this.executor,
+        onSay: (reply) => {
+          if (this.bot) {
+            this.bot.chat(reply);
+          }
+        },
+      });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'Error communicating with AI gateway';
-      console.error('[BotRunner] Gateway chat failure:', errMsg);
-      this.bot.chat(`[${this.config.botName}] Sorry, I had trouble thinking of a reply: ${errMsg}`);
+      console.error('[BotRunner] Agent loop error:', errMsg);
+      this.bot.chat(`[${this.config.botName}] Sorry, I encountered an error: ${errMsg}`);
     }
+  }
+
+  private generatePerceptionSnapshot(): string {
+    if (!this.bot) return 'Bot is offline.';
+
+    const pos = this.bot.entity?.position ?? { x: 0, y: 0, z: 0 };
+    const health = this.bot.health ?? 20;
+    const food = this.bot.food ?? 20;
+
+    // Scan nearby players (≤16 blocks)
+    const nearbyPlayers: EntitySummary[] = [];
+    if (this.bot.players) {
+      for (const [pName, pData] of Object.entries(this.bot.players)) {
+        if (pName !== this.bot.username && pData?.entity?.position) {
+          const dist = pData.entity.position.distanceTo(this.bot.entity.position);
+          if (dist <= 16) {
+            nearbyPlayers.push({
+              name: pName,
+              type: 'player',
+              distance: dist,
+              heldItem: pData.entity.heldItem?.name,
+            });
+          }
+        }
+      }
+    }
+
+    // Scan nearby entities/mobs (≤16 blocks)
+    const nearbyMobs: EntitySummary[] = [];
+    if (this.bot.entities) {
+      for (const entity of Object.values(this.bot.entities)) {
+        if (
+          entity &&
+          entity !== this.bot.entity &&
+          entity.type === 'mob' &&
+          entity.position
+        ) {
+          const dist = entity.position.distanceTo(this.bot.entity.position);
+          if (dist <= 16) {
+            nearbyMobs.push({
+              name: entity.name ?? 'unknown_mob',
+              type: 'mob',
+              distance: dist,
+            });
+          }
+        }
+      }
+    }
+
+    // Scan inventory items
+    const inventory = (this.bot.inventory?.items() ?? []).map((item) => ({
+      name: item.name,
+      count: item.count,
+    }));
+
+    // Notable blocks (stub/scan)
+    const notableBlocks: BlockSummary[] = [];
+
+    return buildPerceptionSnapshot({
+      botName: this.config.botName,
+      position: { x: pos.x, y: pos.y, z: pos.z },
+      health,
+      food,
+      inventory,
+      nearbyPlayers,
+      nearbyMobs,
+      notableBlocks,
+      currentTask: this.currentTask,
+      lastActionResult: this.lastActionResult,
+      savedPlaces: this.config.savedPlaces,
+      recentChat: this.recentChat,
+    });
   }
 
   private getStatusSnapshot(): string {

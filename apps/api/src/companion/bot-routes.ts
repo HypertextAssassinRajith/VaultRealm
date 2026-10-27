@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase } from '../db/index.js';
-import { bots, servers, serverPorts, events, llmEndpoints } from '../db/schema.js';
+import { bots, servers, serverPorts, events, llmEndpoints, users } from '../db/schema.js';
 import { requireAuth, getRequestUser } from '../auth/middleware.js';
 import { assertCan } from '../auth/rbac.js';
 import { validate } from '../validation.js';
@@ -213,6 +213,9 @@ export async function botRoutes(app: FastifyInstance): Promise<void> {
         await driver.removeContainer(bot.containerId).catch(() => {});
       }
 
+      const userRecord = db.select().from(users).where(eq(users.id, user.id)).all()[0];
+      const ownerName = userRecord?.username ?? 'admin';
+
       const containerName = `vaultrealm-bot-${bot.id}`;
       const containerId = await driver.createContainer({
         name: containerName,
@@ -231,6 +234,9 @@ export async function botRoutes(app: FastifyInstance): Promise<void> {
           PERSONA: bot.persona,
           PANEL_GATEWAY_URL: config.PANEL_GATEWAY_URL,
           BOT_TOKEN: token,
+          OWNER_NAME: ownerName,
+          WHO_CAN_COMMAND: bot.whoCanCommand,
+          PROTECTED_ZONES_JSON: bot.protectedZonesJson || '[]',
         },
         ports: [],
         volumes: [],
