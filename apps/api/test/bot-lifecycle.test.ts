@@ -58,9 +58,6 @@ describe('Phase 6b — Bot Runner Lifecycle & Management Routes', () => {
       status: 'stopped',
       ramMb: 2048,
       containerId: `container-${serverId}`,
-      portBindings: '[]',
-      envVars: '{}',
-      resourceLimits: '{}',
       createdAt: new Date().toISOString(),
     }).run();
 
@@ -223,9 +220,9 @@ describe('Phase 6b — Bot Runner Lifecycle & Management Routes', () => {
 
       // Verify DB bot state
       const botRows = db.select().from(bots).where(eq(bots.serverId, serverId)).all();
-      expect(botRows[0].status).toBe('joining');
-      expect(botRows[0].containerId).toBe(data.containerId);
-      expect(botRows[0].lastSpawnedAt).toBeDefined();
+      expect(botRows[0]!.status).toBe('joining');
+      expect(botRows[0]!.containerId).toBe(data.containerId);
+      expect(botRows[0]!.lastSpawnedAt).toBeDefined();
 
       // Verify event was recorded
       const eventRows = db.select().from(events).where(eq(events.serverId, serverId)).all();
@@ -285,9 +282,9 @@ describe('Phase 6b — Bot Runner Lifecycle & Management Routes', () => {
 
       // Verify DB bot state
       const botRows = db.select().from(bots).where(eq(bots.serverId, serverId)).all();
-      expect(botRows[0].status).toBe('offline');
-      expect(botRows[0].containerId).toBeNull();
-      expect(botRows[0].lastDespawnedAt).toBeDefined();
+      expect(botRows[0]!.status).toBe('offline');
+      expect(botRows[0]!.containerId).toBeNull();
+      expect(botRows[0]!.lastDespawnedAt).toBeDefined();
 
       // Verify despawn event
       const eventRows = db.select().from(events).where(eq(events.serverId, serverId)).all();

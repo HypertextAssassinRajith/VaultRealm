@@ -20,7 +20,7 @@ function deriveKey(): Buffer {
   const config = getConfig();
   const secret = config.PANEL_SECRET;
   // Use HKDF-SHA256 to derive a proper key from the secret
-  return crypto.hkdfSync('sha256', secret, '', KEY_LABEL, 32) as Buffer;
+  return Buffer.from(crypto.hkdfSync('sha256', secret, '', KEY_LABEL, 32));
 }
 
 /**

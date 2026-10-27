@@ -22,7 +22,9 @@ describe('Phase 6d — Auto-Spawn Hysteresis & Chat Summon', () => {
       // 10 to 20 seconds -> threshold met (20s) -> spawn!
       const step2 = evaluateAutoSpawn(serverId, 1, 'offline', 'auto-solo', 10);
       expect(step2.action).toBe('spawn');
-      expect(step2.reason).toContain('1 player on server for 20s');
+      if (step2.action === 'spawn') {
+        expect(step2.reason).toContain('1 player on server for 20s');
+      }
 
       // If already online, does not re-spawn
       const step3 = evaluateAutoSpawn(serverId, 1, 'online', 'auto-solo', 10);
@@ -41,14 +43,18 @@ describe('Phase 6d — Auto-Spawn Hysteresis & Chat Summon', () => {
       // 30 to 60 seconds -> threshold met (60s) -> despawn (farewell)
       const step2 = evaluateAutoSpawn(serverId, 2, 'online', 'auto-solo', 30);
       expect(step2.action).toBe('despawn');
-      expect(step2.reason).toContain('companion bids farewell');
+      if (step2.action === 'despawn') {
+        expect(step2.reason).toContain('companion bids farewell');
+      }
     });
 
     it('immediately despawns when 0 players are active so server can idle-stop', () => {
       // Bot is online
       const action = evaluateAutoSpawn(serverId, 0, 'online', 'auto-solo', 10);
       expect(action.action).toBe('despawn');
-      expect(action.reason).toContain('0 players on server; despawning for server idle stop');
+      if (action.action === 'despawn') {
+        expect(action.reason).toContain('0 players on server; despawning for server idle stop');
+      }
     });
 
     it('respects pause duration from !leave command (2 hours hysteresis)', () => {

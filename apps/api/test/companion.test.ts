@@ -341,9 +341,6 @@ describe('Phase 6a — AI Companion LLM Endpoints & Gateway', () => {
         status: 'stopped',
         ramMb: 1024,
         containerId: null,
-        portBindings: '[]',
-        envVars: '{}',
-        resourceLimits: '{}',
         createdAt: new Date().toISOString(),
       }).run();
 
@@ -540,9 +537,6 @@ describe('Phase 6a — AI Companion LLM Endpoints & Gateway', () => {
         status: 'running',
         ramMb: 1024,
         containerId: null,
-        portBindings: '[]',
-        envVars: '{}',
-        resourceLimits: '{}',
         createdAt: new Date().toISOString(),
       }).run();
 
@@ -591,22 +585,22 @@ describe('Phase 6a — AI Companion LLM Endpoints & Gateway', () => {
 
       expect(res.statusCode).toBe(200);
       const data = res.json();
-      expect(data.choices[0].message.content).toBe('Hello player!');
+      expect(data.choices[0]!.message.content).toBe('Hello player!');
       expect(data.usage.total_tokens).toBe(25);
 
       // Verify token usage tracked in DB
       const db = getDatabase();
       const usageRows = db.select().from(botUsage).all();
       expect(usageRows.length).toBe(1);
-      expect(usageRows[0].promptTokens).toBe(15);
-      expect(usageRows[0].completionTokens).toBe(10);
-      expect(usageRows[0].requests).toBe(1);
+      expect(usageRows[0]!.promptTokens).toBe(15);
+      expect(usageRows[0]!.completionTokens).toBe(10);
+      expect(usageRows[0]!.requests).toBe(1);
 
       // Verify trace stored in DB
       const traceRows = db.select().from(botTraces).all();
       expect(traceRows.length).toBe(1);
-      expect(traceRows[0].botId).toBe(botId);
-      expect(traceRows[0].status).toBe('ok');
+      expect(traceRows[0]!.botId).toBe(botId);
+      expect(traceRows[0]!.status).toBe('ok');
     });
 
     it('rejects missing or invalid bot tokens', async () => {
@@ -699,8 +693,9 @@ describe('Phase 6a — AI Companion LLM Endpoints & Gateway', () => {
         },
       });
 
-      expect(forwardedBody).not.toBeNull();
-      expect(forwardedBody?.max_tokens).toBe(4096);
+      const captured = forwardedBody as { max_tokens?: number } | null;
+      expect(captured).not.toBeNull();
+      expect(captured?.max_tokens).toBe(4096);
     });
   });
 });
