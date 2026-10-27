@@ -61,8 +61,8 @@ describe('Phase 6d — Companion Usage, Traces & Microsoft Device-Code Routes', 
       .run();
   });
 
-  afterEach(async () => {
-    await cleanupTestApp(app);
+  afterEach(() => {
+    cleanupTestApp();
   });
 
   it('GET /api/servers/:id/companion/bot/usage returns accurate daily token usage and metrics', async () => {
