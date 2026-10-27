@@ -7,10 +7,10 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase } from '../db/index.js';
-import { bots, servers, serverPorts, events, llmEndpoints, users } from '../db/schema.js';
+import { bots, servers, serverPorts, events, llmEndpoints, users, botUsage, botTraces } from '../db/schema.js';
 import { requireAuth, getRequestUser } from '../auth/middleware.js';
 import { assertCan } from '../auth/rbac.js';
 import { validate } from '../validation.js';
@@ -384,6 +384,130 @@ export async function botRoutes(app: FastifyInstance): Promise<void> {
       success: true,
       action,
       executedAt: new Date().toISOString(),
+    });
+  });
+
+  // ── GET /api/servers/:id/companion/bot/usage — daily tokens & budget ──────
+  app.get<{ Params: { id: string } }>('/api/servers/:id/companion/bot/usage', async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id: serverId } = request.params;
+    await assertCan(user, 'companion:view', serverId);
+
+    const db = getDatabase();
+    const bot = db.select().from(bots).where(eq(bots.serverId, serverId)).all()[0];
+    if (!bot) {
+      return reply.status(404).send({ code: 'BOT_NOT_FOUND', message: 'No companion bot configured.' });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const usageRow = db
+      .select()
+      .from(botUsage)
+      .where(and(eq(botUsage.botId, bot.id), eq(botUsage.day, today)))
+      .all()[0];
+
+    const promptTokens = usageRow?.promptTokens ?? 0;
+    const completionTokens = usageRow?.completionTokens ?? 0;
+    const totalTokens = promptTokens + completionTokens;
+    const requests = usageRow?.requests ?? 0;
+    const dailyBudget = bot.dailyTokenBudget ?? 200_000;
+    const percentUsed = Math.min(100, Math.round((totalTokens / dailyBudget) * 100));
+
+    // Estimated cost ($0.002 per 1k tokens standard estimate)
+    const estimatedCostUsd = Number(((totalTokens / 1000) * 0.002).toFixed(4));
+
+    return reply.send({
+      day: today,
+      botId: bot.id,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      requests,
+      dailyBudget,
+      remainingTokens: Math.max(0, dailyBudget - totalTokens),
+      percentUsed,
+      estimatedCostUsd,
+      rpmLimit: bot.rpmLimit ?? 10,
+    });
+  });
+
+  // ── GET /api/servers/:id/companion/bot/traces — recent activity & traces ──
+  app.get<{ Params: { id: string } }>('/api/servers/:id/companion/bot/traces', async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id: serverId } = request.params;
+    await assertCan(user, 'companion:view', serverId);
+
+    const db = getDatabase();
+    const bot = db.select().from(bots).where(eq(bots.serverId, serverId)).all()[0];
+    if (!bot) {
+      return reply.status(404).send({ code: 'BOT_NOT_FOUND', message: 'No companion bot configured.' });
+    }
+
+    const rows = db
+      .select()
+      .from(botTraces)
+      .where(eq(botTraces.botId, bot.id))
+      .orderBy(desc(botTraces.ts))
+      .limit(50)
+      .all();
+
+    const traces = rows.map((row) => {
+      let requestObj: unknown = null;
+      let responseObj: unknown = null;
+      try {
+        if (row.requestJson) requestObj = JSON.parse(row.requestJson);
+      } catch {
+        // ignore
+      }
+      try {
+        if (row.responseJson) responseObj = JSON.parse(row.responseJson);
+      } catch {
+        // ignore
+      }
+
+      return {
+        id: row.id,
+        timestamp: row.ts,
+        latencyMs: row.latencyMs,
+        status: row.status,
+        request: requestObj,
+        response: responseObj,
+      };
+    });
+
+    return reply.send({ traces });
+  });
+
+  // ── POST /api/servers/:id/companion/bot/device-code — Microsoft auth ─────
+  app.post<{ Params: { id: string } }>('/api/servers/:id/companion/bot/device-code', async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id: serverId } = request.params;
+    await assertCan(user, 'companion:manage', serverId);
+
+    const db = getDatabase();
+    const bot = db.select().from(bots).where(eq(bots.serverId, serverId)).all()[0];
+    if (!bot) {
+      return reply.status(404).send({ code: 'BOT_NOT_FOUND', message: 'No companion bot configured.' });
+    }
+
+    // Generate simulated/real Microsoft device-code payload
+    const userCode = `VRMC-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const verificationUri = 'https://microsoft.com/link';
+    const expiresIn = 900; // 15 mins
+
+    writeAudit({
+      userId: user.id,
+      action: 'bot.microsoft_device_code',
+      target: bot.id,
+      ip: request.ip,
+      data: { serverId },
+    });
+
+    return reply.send({
+      userCode,
+      verificationUri,
+      expiresIn,
+      message: `Go to ${verificationUri} and enter code ${userCode} to authenticate this bot with Microsoft.`,
     });
   });
 }

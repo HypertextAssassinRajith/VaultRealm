@@ -7,6 +7,7 @@ import {
   type CompanionUsage,
   type BotDetail,
   type ApiError,
+  type CompanionTrace,
 } from '../api/client';
 import { useToast } from './Toast';
 import { useConfirm } from './ConfirmModal';
@@ -43,6 +44,19 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [sayInput, setSayInput] = useState('');
 
+  // Phase 6d sub-tabs & traces & device-code state
+  const [activeSubTab, setActiveSubTab] = useState<'control' | 'usage' | 'traces' | 'endpoints'>('control');
+  const [traces, setTraces] = useState<CompanionTrace[]>([]);
+  const [loadingTraces, setLoadingTraces] = useState(false);
+  const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
+  const [deviceCodeModal, setDeviceCodeModal] = useState<{
+    open: boolean;
+    userCode?: string;
+    verificationUri?: string;
+    message?: string;
+  } | null>(null);
+  const [loadingDeviceCode, setLoadingDeviceCode] = useState(false);
+
   // New/Edit endpoint form
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -66,7 +80,7 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
       const [presetsRes, endpointsRes, usageRes, botRes] = await Promise.all([
         api.listEndpointPresets().catch(() => ({ presets: [] })),
         api.listEndpoints().catch(() => ({ endpoints: [] })),
-        api.getCompanionUsage(serverId).catch(() => null),
+        api.getBotUsage(serverId).catch(() => null),
         api.getBot(serverId).catch(() => ({ configured: false, bot: null })),
       ]);
       setPresets(presetsRes.presets);
@@ -295,6 +309,37 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
     }
   };
 
+  const loadTraces = async () => {
+    try {
+      setLoadingTraces(true);
+      const res = await api.getBotTraces(serverId);
+      setTraces(res.traces);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingTraces(false);
+    }
+  };
+
+  const handleDeviceCodeLogin = async () => {
+    try {
+      setLoadingDeviceCode(true);
+      const res = await api.getBotDeviceCode(serverId);
+      setDeviceCodeModal({
+        open: true,
+        userCode: res.userCode,
+        verificationUri: res.verificationUri,
+        message: res.message,
+      });
+      addToast({ type: 'info', title: 'Device Code Ready', message: `Code: ${res.userCode}` });
+    } catch (err: unknown) {
+      const error = err as ApiError;
+      addToast({ type: 'error', title: 'Device Code Failed', message: error.message });
+    } finally {
+      setLoadingDeviceCode(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: '60px', color: '#94a3b8' }}>
@@ -378,16 +423,16 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
           </div>
         </div>
 
-        {usage?.configured && usage.today && (
+        {usage && (
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Today's Tokens
               </div>
               <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc' }}>
-                {usage.today.totalTokens.toLocaleString()}
+                {usage.totalTokens.toLocaleString()}
                 <span style={{ fontSize: '0.8rem', fontWeight: 400, color: '#64748b', marginLeft: '4px' }}>
-                  / {usage.dailyBudget?.toLocaleString() ?? '∞'}
+                  / {(usage.dailyBudget ?? 200_000).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -396,12 +441,47 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
                 Requests
               </div>
               <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#a855f7' }}>
-                {usage.today.requests}
+                {usage.requests}
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* ── Sub-Navigation Tabs ── */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', flexWrap: 'wrap' }}>
+        {[
+          { id: 'control', label: '🎮 Controls & Setup' },
+          { id: 'usage', label: '📊 Usage & Budget' },
+          { id: 'traces', label: '🔍 Activity & Traces' },
+          { id: 'endpoints', label: `⚡ AI Endpoints (${endpoints.length})` },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => {
+              setActiveSubTab(tab.id as 'control' | 'usage' | 'traces' | 'endpoints');
+              if (tab.id === 'traces') loadTraces();
+            }}
+            style={{
+              background: activeSubTab === tab.id ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
+              color: activeSubTab === tab.id ? '#818cf8' : '#94a3b8',
+              border: activeSubTab === tab.id ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent',
+              borderRadius: '8px',
+              padding: '8px 16px',
+              fontWeight: 600,
+              fontSize: '0.875rem',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSubTab === 'control' && (
+        <>
 
       {/* ── Section 1: Live Bot Control & In-Game Actions ── */}
       <div
@@ -656,6 +736,27 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
                 <option value="offline">Offline (Private Server)</option>
                 <option value="microsoft">Microsoft Java Account</option>
               </select>
+              {botAuthMode === 'microsoft' && (
+                <button
+                  type="button"
+                  onClick={handleDeviceCodeLogin}
+                  disabled={loadingDeviceCode}
+                  style={{
+                    marginTop: '6px',
+                    width: '100%',
+                    background: 'rgba(99, 102, 241, 0.15)',
+                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                    color: '#a5b4fc',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {loadingDeviceCode ? 'Requesting Code...' : '🔑 Device-Code Login'}
+                </button>
+              )}
             </div>
 
             <div>
@@ -727,8 +828,232 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
           </div>
         </form>
       </div>
+      </>
+      )}
 
-      {/* ── Section 3: AI Provider Endpoints Manager ── */}
+      {/* ── Sub-Tab 2: Usage & Budget View ── */}
+      {activeSubTab === 'usage' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              borderRadius: '16px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              padding: '24px',
+            }}
+          >
+            <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem', fontWeight: 600, color: '#f8fafc' }}>
+              Daily Token Budget & Metering
+            </h3>
+
+            {usage ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                    <span style={{ color: '#94a3b8' }}>
+                      Tokens Used: <strong style={{ color: '#f8fafc' }}>{usage.totalTokens.toLocaleString()}</strong> / {(usage.dailyBudget ?? 200_000).toLocaleString()}
+                    </span>
+                    <span style={{ color: usage.percentUsed > 90 ? '#f87171' : '#818cf8', fontWeight: 600 }}>
+                      {usage.percentUsed}%
+                    </span>
+                  </div>
+                  <div style={{ width: '100%', height: '10px', background: 'rgba(15, 23, 42, 0.6)', borderRadius: '5px', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        width: `${Math.min(100, usage.percentUsed)}%`,
+                        height: '100%',
+                        background: usage.percentUsed > 90
+                          ? 'linear-gradient(90deg, #f59e0b, #ef4444)'
+                          : 'linear-gradient(90deg, #6366f1, #a855f7)',
+                        borderRadius: '5px',
+                        transition: 'width 0.4s ease',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.5)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Prompt Tokens</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc', marginTop: '4px' }}>
+                      {usage.promptTokens.toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.5)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Completion Tokens</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc', marginTop: '4px' }}>
+                      {usage.completionTokens.toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.5)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Estimated Cost</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#10b981', marginTop: '4px' }}>
+                      ${usage.estimatedCostUsd.toFixed(4)}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.5)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Rate Limit</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#38bdf8', marginTop: '4px' }}>
+                      {usage.rpmLimit} req/min
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>No usage recorded yet today.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Sub-Tab 3: Activity & Traces View ── */}
+      {activeSubTab === 'traces' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: '#f8fafc' }}>
+              Companion Activity & Decision Traces
+            </h3>
+            <button
+              type="button"
+              onClick={loadTraces}
+              disabled={loadingTraces}
+              style={{
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: '#e2e8f0',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+            >
+              {loadingTraces ? 'Refreshing...' : '🔄 Refresh Traces'}
+            </button>
+          </div>
+
+          {loadingTraces && traces.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Loading traces...</div>
+          ) : traces.length === 0 ? (
+            <div
+              style={{
+                background: 'rgba(30, 41, 59, 0.4)',
+                borderRadius: '12px',
+                border: '1px dashed rgba(255, 255, 255, 0.1)',
+                padding: '36px',
+                textAlign: 'center',
+                color: '#94a3b8',
+              }}
+            >
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>📜</div>
+              <div style={{ fontWeight: 600, color: '#e2e8f0' }}>No Traces Recorded</div>
+              <div style={{ fontSize: '0.85rem', marginTop: '4px' }}>
+                When the bot processes chat commands or triggers skills, full decision traces will appear here.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {traces.map((trace) => {
+                const isExpanded = expandedTraceId === trace.id;
+                return (
+                  <div
+                    key={trace.id}
+                    style={{
+                      background: 'rgba(30, 41, 59, 0.6)',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      onClick={() => setExpandedTraceId(isExpanded ? null : trace.id)}
+                      style={{
+                        padding: '14px 18px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: isExpanded ? 'rgba(255, 255, 255, 0.03)' : 'transparent',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span
+                          style={{
+                            fontSize: '0.75rem',
+                            padding: '3px 8px',
+                            borderRadius: '12px',
+                            fontWeight: 600,
+                            background: trace.status === 'success' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                            color: trace.status === 'success' ? '#4ade80' : '#f87171',
+                          }}
+                        >
+                          {trace.status}
+                        </span>
+                        <span style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
+                          {new Date(trace.timestamp).toLocaleTimeString()}
+                        </span>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                          ({trace.latencyMs}ms)
+                        </span>
+                      </div>
+                      <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                        {isExpanded ? 'Hide Trace ▲' : 'View Trace ▼'}
+                      </span>
+                    </div>
+
+                    {isExpanded && (
+                      <div style={{ padding: '16px 18px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', background: 'rgba(15, 23, 42, 0.5)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                          <div>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', marginBottom: '6px' }}>
+                              REQUEST TO MODEL
+                            </div>
+                            <pre
+                              style={{
+                                margin: 0,
+                                padding: '12px',
+                                borderRadius: '8px',
+                                background: 'rgba(0, 0, 0, 0.3)',
+                                fontSize: '0.75rem',
+                                color: '#e2e8f0',
+                                overflowX: 'auto',
+                                maxHeight: '200px',
+                              }}
+                            >
+                              {JSON.stringify(trace.request, null, 2)}
+                            </pre>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', marginBottom: '6px' }}>
+                              MODEL DECISION & TOOLS
+                            </div>
+                            <pre
+                              style={{
+                                margin: 0,
+                                padding: '12px',
+                                borderRadius: '8px',
+                                background: 'rgba(0, 0, 0, 0.3)',
+                                fontSize: '0.75rem',
+                                color: '#a5b4fc',
+                                overflowX: 'auto',
+                                maxHeight: '200px',
+                              }}
+                            >
+                              {JSON.stringify(trace.response, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Sub-Tab 4: AI Provider Endpoints Manager ── */}
+      {activeSubTab === 'endpoints' && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '24px' }}>
         {/* Left Column: Configured Endpoints */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1183,6 +1508,115 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
           </div>
         </div>
       </div>
+      )}
+
+      {/* ── Microsoft Device Code Modal ── */}
+      {deviceCodeModal?.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '16px',
+              padding: '28px',
+              maxWidth: '450px',
+              width: '90%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+          >
+            <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '1.2rem', fontWeight: 600 }}>
+              Microsoft Account Link
+            </h3>
+            <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.875rem', lineHeight: '1.5' }}>
+              To connect your Minecraft Java account to the companion bot, visit the link below and enter the one-time code:
+            </p>
+
+            <div
+              style={{
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                padding: '16px',
+                borderRadius: '12px',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>One-Time Code</div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#818cf8', letterSpacing: '0.1em', marginTop: '4px' }}>
+                {deviceCodeModal.userCode}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <a
+                href={deviceCodeModal.verificationUri}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  flex: 1,
+                  textAlign: 'center',
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  color: '#ffffff',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  fontSize: '0.875rem',
+                  textDecoration: 'none',
+                }}
+              >
+                Open Microsoft Link ↗
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(deviceCodeModal.userCode || '');
+                  addToast({ type: 'success', title: 'Code copied to clipboard!' });
+                }}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#f8fafc',
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  fontWeight: 500,
+                  fontSize: '0.875rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Copy Code
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setDeviceCodeModal(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#64748b',
+                padding: '6px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                textDecoration: 'underline',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

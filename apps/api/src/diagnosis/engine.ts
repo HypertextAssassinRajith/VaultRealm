@@ -25,6 +25,7 @@ import { diskFullRule } from './rules/disk-full.js';
 import { crashLoopRule } from './rules/crash-loop.js';
 import { noReadySignalRule } from './rules/no-ready-signal.js';
 import { unknownExitRule } from './rules/unknown-exit.js';
+import { companionAuthRule } from './rules/companion-auth.js';
 
 export const BUILTIN_RULES: DiagnosisRule[] = [
   oomKilledRule,
@@ -36,6 +37,7 @@ export const BUILTIN_RULES: DiagnosisRule[] = [
   crashLoopRule,
   noReadySignalRule,
   unknownExitRule,
+  companionAuthRule,
 ];
 
 /**

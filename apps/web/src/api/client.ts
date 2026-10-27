@@ -257,6 +257,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ action, message }),
     }),
+  getBotUsage: (serverId: string) =>
+    request<CompanionUsage>(`/api/servers/${serverId}/companion/bot/usage`),
+  getBotTraces: (serverId: string) =>
+    request<{ traces: CompanionTrace[] }>(`/api/servers/${serverId}/companion/bot/traces`),
+  getBotDeviceCode: (serverId: string) =>
+    request<{ userCode: string; verificationUri: string; expiresIn: number; message: string }>(
+      `/api/servers/${serverId}/companion/bot/device-code`,
+      { method: 'POST' },
+    ),
 };
 
 export interface LlmEndpointPreset {
@@ -291,19 +300,7 @@ export interface TestConnectionResult {
   supportsTools: boolean;
 }
 
-export interface CompanionUsage {
-  configured: boolean;
-  botId?: string;
-  status?: string;
-  dailyBudget?: number;
-  rpmLimit?: number;
-  today?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-    requests: number;
-  };
-}
+
 
 export interface BotDetail {
   id: string;
@@ -337,4 +334,27 @@ export interface BotConfigInput {
   dailyTokenBudget?: number;
   rpmLimit?: number;
   proactive?: boolean;
+}
+
+export interface CompanionUsage {
+  day: string;
+  botId: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  requests: number;
+  dailyBudget: number;
+  remainingTokens: number;
+  percentUsed: number;
+  estimatedCostUsd: number;
+  rpmLimit: number;
+}
+
+export interface CompanionTrace {
+  id: string;
+  timestamp: string;
+  latencyMs: number;
+  status: string;
+  request: unknown;
+  response: unknown;
 }
