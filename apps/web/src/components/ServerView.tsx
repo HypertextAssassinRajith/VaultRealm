@@ -8,6 +8,7 @@ import {
 } from '../api/client';
 import { useToast } from './Toast';
 import { useConfirm } from './ConfirmModal';
+import { CompanionTab } from './CompanionTab';
 
 interface ServerViewProps {
   serverId: string;
@@ -17,7 +18,7 @@ interface ServerViewProps {
 
 export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const [server, setServer] = useState<ServerDetail | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'console' | 'debug' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'console' | 'debug' | 'companion' | 'settings'>('overview');
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [commandInput, setCommandInput] = useState('');
   const [findings, setFindings] = useState<DiagnosisFinding[]>([]);
@@ -287,11 +288,12 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
           { id: 'overview', label: 'Overview', icon: '📊' },
           { id: 'console', label: 'Live Console', icon: '💻' },
           { id: 'debug', label: 'Auto-Diagnosis', icon: '🔍' },
+          { id: 'companion', label: 'AI Companion', icon: '🤖' },
           { id: 'settings', label: 'Settings', icon: '⚙️' },
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as 'overview' | 'console' | 'debug' | 'settings')}
+            onClick={() => setActiveTab(tab.id as 'overview' | 'console' | 'debug' | 'companion' | 'settings')}
             className={`py-2 px-4 text-xs font-semibold rounded-t-lg transition-all cursor-pointer flex items-center gap-2 border-b-2 -mb-px ${
               activeTab === tab.id
                 ? 'border-primary text-primary bg-primary/10'
@@ -521,6 +523,11 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Tab: Companion */}
+      {activeTab === 'companion' && (
+        <CompanionTab serverId={serverId} />
       )}
 
       {/* Tab: Settings */}

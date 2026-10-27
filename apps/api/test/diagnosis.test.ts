@@ -150,4 +150,21 @@ describe('Diagnosis Rules Engine', () => {
     expect(ready?.severity).toBe('warn');
     expect(ready?.title).toMatch(/ready signal/i);
   });
+
+  it('rule: companion-auth-mismatch detects online-mode verification failures', () => {
+    const logs = loadLogFixture('companion-auth-mismatch.log');
+    const ctx: DiagnosisContext = {
+      serverId: 'test-srv-9',
+      logs,
+    };
+
+    const findings = evaluateRules(ctx);
+    const authFinding = findings.find((f) => f.ruleId === 'companion-auth-mismatch');
+    expect(authFinding).toBeDefined();
+    expect(authFinding?.severity).toBe('error');
+    expect(authFinding?.title).toMatch(/online mode mismatch/i);
+    expect(authFinding?.explanation).toContain('online-mode=true');
+    expect(authFinding?.fixes.some((fx) => fx.label.includes('Microsoft'))).toBe(true);
+    expect(authFinding?.fixes.some((fx) => fx.label.includes('ONLINE_MODE=FALSE'))).toBe(true);
+  });
 });
