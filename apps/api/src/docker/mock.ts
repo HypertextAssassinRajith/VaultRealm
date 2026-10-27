@@ -42,6 +42,9 @@ export class MockDockerDriver implements DockerDriver {
   /** Counter for generating unique IDs. */
   private idCounter = 0;
 
+  /** Periodic log generator intervals per container. */
+  private readonly _logIntervals = new Map<string, ReturnType<typeof setInterval>>();
+
   /** Optional hook: throw from this to simulate failures. */
   onCreateContainer?: (opts: ContainerCreateOptions) => void;
   onStartContainer?: (id: string) => void;
@@ -92,12 +95,58 @@ export class MockDockerDriver implements DockerDriver {
       finishedAt: '',
     };
 
+    // Generate realistic startup logs for the live console
+    const ts = () => new Date().toISOString().split('T')[1]?.slice(0, 8) ?? '00:00:00';
+    const startupLogs = [
+      `[${ts()}] [Server] Starting ${container.config.image}...`,
+      `[${ts()}] [Server] Loading configuration from /data/server.properties`,
+      `[${ts()}] [Server] Environment: EULA=TRUE, MEMORY=${container.config.env?.MEMORY ?? '2048M'}`,
+      `[${ts()}] [Server] Preparing level "world"`,
+      `[${ts()}] [Server] Generating keypair`,
+      `[${ts()}] [Server] Starting Minecraft server on 0.0.0.0:25565`,
+      `[${ts()}] [Server] Preparing spawn area: 0%`,
+      `[${ts()}] [Server] Preparing spawn area: 50%`,
+      `[${ts()}] [Server] Preparing spawn area: 100%`,
+      `[${ts()}] [Server] Done! Server is now accepting connections.`,
+      `[${ts()}] [Server] For help, type "help" or "?"`,
+    ];
+    container.logs.push(...startupLogs);
+
+    // Emit periodic heartbeat logs while the container is running
+    const logInterval = setInterval(() => {
+      if (!container.state.running) {
+        clearInterval(logInterval);
+        return;
+      }
+      const tickMessages = [
+        `[${ts()}] [Server] Tick rate: 20.0 TPS`,
+        `[${ts()}] [Server] Memory: ${Math.floor(Math.random() * 512) + 256}MB / ${container.config.env?.MEMORY ?? '2048M'}`,
+        `[${ts()}] [Server] Players online: 0`,
+      ];
+      const line = tickMessages[Math.floor(Math.random() * tickMessages.length)]!;
+      container.logs.push(line);
+      // Keep log buffer bounded
+      if (container.logs.length > 500) {
+        container.logs.splice(0, container.logs.length - 500);
+      }
+    }, 5000);
+
+    // Store the interval so it can be cleaned up on stop
+    this._logIntervals.set(id, logInterval);
+
     this.emitEvent('container', 'start', id, container.config.labels);
   }
 
   async stopContainer(id: string, _timeoutSeconds?: number): Promise<void> {
     const container = this.getOrThrow(id);
     this.onStopContainer?.(id);
+
+    // Clean up periodic log generator
+    const interval = this._logIntervals.get(id);
+    if (interval) {
+      clearInterval(interval);
+      this._logIntervals.delete(id);
+    }
 
     container.state = {
       ...container.state,
@@ -141,6 +190,12 @@ export class MockDockerDriver implements DockerDriver {
     const container = this.getOrThrow(id);
     if (container.state.running) {
       throw new Error(`Cannot remove running container ${id}. Stop it first.`);
+    }
+    // Clean up any lingering log interval
+    const interval = this._logIntervals.get(id);
+    if (interval) {
+      clearInterval(interval);
+      this._logIntervals.delete(id);
     }
     this.containers.delete(id);
     this.emitEvent('container', 'destroy', id, container.config.labels);

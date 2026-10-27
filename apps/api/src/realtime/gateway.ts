@@ -68,25 +68,10 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
       // Initial status message
       socket.send(JSON.stringify({ type: 'status', data: server.status }));
 
-      // 3. Periodic stats & status stream
-      const statsInterval = setInterval(async () => {
-        if (socket.readyState !== socket.OPEN) {
-          clearInterval(statsInterval);
-          return;
-        }
+      // Track how many logs we've already sent to avoid duplicates
+      let lastLogCount = 0;
 
-        try {
-          if (server.containerId && server.status === 'running') {
-            const driver = getDockerDriver();
-            const stats = await driver.getContainerStats(server.containerId);
-            socket.send(JSON.stringify({ type: 'stats', data: stats }));
-          }
-        } catch {
-          // ignore transient stats error
-        }
-      }, 3000);
-
-      // 4. Send recent logs to initialize xterm console
+      // 3. Send initial logs + set up continuous log & stats streaming
       if (server.containerId) {
         try {
           const driver = getDockerDriver();
@@ -94,10 +79,62 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
           for (const line of logs) {
             socket.send(JSON.stringify({ type: 'log', data: line }));
           }
+          lastLogCount = logs.length;
         } catch {
           // container might be stopped
         }
       }
+
+      // 4. Periodic stats, status, and log streaming
+      const streamInterval = setInterval(async () => {
+        if (socket.readyState !== socket.OPEN) {
+          clearInterval(streamInterval);
+          return;
+        }
+
+        try {
+          // Re-query server from DB to get latest status & containerId
+          const currentServer = db.select().from(servers).where(eq(servers.id, serverId)).all()[0];
+          if (!currentServer) {
+            clearInterval(streamInterval);
+            return;
+          }
+
+          // Send status updates when status changes
+          if (currentServer.status !== server.status) {
+            server.status = currentServer.status;
+            socket.send(JSON.stringify({ type: 'status', data: currentServer.status }));
+          }
+
+          if (currentServer.containerId && currentServer.status === 'running') {
+            const driver = getDockerDriver();
+
+            // Stream new log lines since last check
+            try {
+              const allLogs = await driver.getContainerLogs(currentServer.containerId, 500);
+              if (allLogs.length > lastLogCount) {
+                const newLines = allLogs.slice(lastLogCount);
+                for (const line of newLines) {
+                  socket.send(JSON.stringify({ type: 'log', data: line }));
+                }
+                lastLogCount = allLogs.length;
+              }
+            } catch {
+              // ignore transient log error
+            }
+
+            // Send resource stats
+            try {
+              const stats = await driver.getContainerStats(currentServer.containerId);
+              socket.send(JSON.stringify({ type: 'stats', data: stats }));
+            } catch {
+              // ignore transient stats error
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }, 2000);
 
       // 5. Inbound client messages
       socket.on('message', async (raw: Buffer | string) => {
@@ -131,7 +168,7 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
       });
 
       socket.on('close', () => {
-        clearInterval(statsInterval);
+        clearInterval(streamInterval);
       });
     },
   );
