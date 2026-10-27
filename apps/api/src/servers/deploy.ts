@@ -45,6 +45,32 @@ class DeployEventBus extends EventEmitter {}
 const deployBus = new DeployEventBus();
 
 /**
+ * Per-server event history buffer. Replays missed events to late-connecting SSE clients.
+ * Steps 1-3 fire synchronously during POST before the SSE connects, so without replay
+ * those events would be lost.
+ */
+const deployHistory = new Map<string, DeployStepEvent[]>();
+const HISTORY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function bufferEvent(evt: DeployStepEvent): void {
+  let history = deployHistory.get(evt.serverId);
+  if (!history) {
+    history = [];
+    deployHistory.set(evt.serverId, history);
+    // Auto-clean after TTL
+    setTimeout(() => deployHistory.delete(evt.serverId), HISTORY_TTL_MS);
+  }
+  history.push(evt);
+}
+
+/**
+ * Get buffered deploy events for replay to late-connecting SSE clients.
+ */
+export function getDeployHistory(serverId: string): DeployStepEvent[] {
+  return deployHistory.get(serverId) ?? [];
+}
+
+/**
  * Subscribe to deploy progress events for a server.
  * Returns an unsubscribe function.
  */
@@ -94,6 +120,7 @@ function emitDeployStep(
     console.error(`[deploy] Failed to write event for server ${serverId}:`, err);
   }
 
+  bufferEvent(evt);
   deployBus.emit('progress', evt);
 }
 

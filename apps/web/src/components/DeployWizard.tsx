@@ -75,7 +75,10 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
       const serverId = res.id;
 
       // Subscribe to Server-Sent Events (SSE) for 9-step progress
-      const eventSource = new EventSource(`/api/servers/${serverId}/deploy-stream`);
+      // withCredentials is required so the browser sends the session cookie
+      const eventSource = new EventSource(`/api/servers/${serverId}/deploy-stream`, {
+        withCredentials: true,
+      });
 
       eventSource.onmessage = (event) => {
         try {

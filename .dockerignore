@@ -1,0 +1,49 @@
+# Dependencies (reinstalled in container)
+node_modules/
+
+# Build artifacts (rebuilt in container)
+dist/
+*.tsbuildinfo
+
+# Runtime data
+data/
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.sw?
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs & CI (not needed in image)
+docs/
+*.md
+!README.md
+.prettierrc
+.agents/
+
+# Docker (avoid recursive context)
+Dockerfile
+docker-compose.yml
+Caddyfile
+.dockerignore
+
+# Logs
+*.log
+logs/
+
+# Test files
+apps/api/test/
+apps/api/vitest.config.*

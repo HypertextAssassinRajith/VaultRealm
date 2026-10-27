@@ -22,7 +22,7 @@ import {
   listUserServers,
   getDockerDriver,
 } from './service.js';
-import { executeDeploy, subscribeDeployProgress } from './deploy.js';
+import { executeDeploy, subscribeDeployProgress, getDeployHistory } from './deploy.js';
 import { getHostCapacityStatus, getUserQuotaUsage } from './quota.js';
 import { getDatabase } from '../db/index.js';
 import { events } from '../db/schema.js';
@@ -152,10 +152,23 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     await assertCan(user, 'server:view', id);
 
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
-    reply.raw.setHeader('Connection', 'keep-alive');
-    reply.raw.flushHeaders?.();
+    // Hijack the response so Fastify doesn't auto-send a reply
+    // (required when writing directly to reply.raw for SSE)
+    reply.hijack();
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no', // Disable nginx buffering if behind proxy
+    });
+
+    // Replay buffered events (steps 1-3 fire synchronously during POST
+    // before the SSE client connects, so they'd otherwise be lost)
+    const history = getDeployHistory(id);
+    for (const evt of history) {
+      reply.raw.write(`data: ${JSON.stringify(evt)}\n\n`);
+    }
 
     const unsubscribe = subscribeDeployProgress(id, (evt) => {
       reply.raw.write(`data: ${JSON.stringify(evt)}\n\n`);
