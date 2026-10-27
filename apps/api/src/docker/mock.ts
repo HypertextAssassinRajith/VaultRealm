@@ -148,6 +148,13 @@ export class MockDockerDriver implements DockerDriver {
       this._logIntervals.delete(id);
     }
 
+    const ts = () => new Date().toISOString().split('T')[1]?.slice(0, 8) ?? '00:00:00';
+    container.logs.push(
+      `[${ts()}] [Server] Stopping server...`,
+      `[${ts()}] [Server] Saving world data...`,
+      `[${ts()}] [Server] Server stopped gracefully.`,
+    );
+
     container.state = {
       ...container.state,
       status: 'exited',
@@ -171,11 +178,25 @@ export class MockDockerDriver implements DockerDriver {
   async killContainer(id: string, signal?: string): Promise<void> {
     const container = this.getOrThrow(id);
 
+    // Clean up periodic log generator
+    const killInterval = this._logIntervals.get(id);
+    if (killInterval) {
+      clearInterval(killInterval);
+      this._logIntervals.delete(id);
+    }
+
+    const exitCode = signal === 'SIGKILL' ? 137 : 143;
+    const ts = () => new Date().toISOString().split('T')[1]?.slice(0, 8) ?? '00:00:00';
+    container.logs.push(
+      `[${ts()}] [Server] WARN: Received ${signal ?? 'SIGTERM'} signal`,
+      `[${ts()}] [Server] ERROR: Server process killed (exit code ${exitCode})`,
+    );
+
     container.state = {
       ...container.state,
       status: 'exited',
       running: false,
-      exitCode: signal === 'SIGKILL' ? 137 : 143,
+      exitCode,
       finishedAt: new Date().toISOString(),
     };
 

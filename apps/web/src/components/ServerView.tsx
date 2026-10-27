@@ -7,6 +7,7 @@ import {
   type ApiError,
 } from '../api/client';
 import { useToast } from './Toast';
+import { useConfirm } from './ConfirmModal';
 
 interface ServerViewProps {
   serverId: string;
@@ -25,6 +26,7 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
 
   const consoleBottomRef = useRef<HTMLDivElement>(null);
   const { addToast } = useToast();
+  const { confirm, ConfirmDialog } = useConfirm();
 
   const fetchServer = async () => {
     try {
@@ -151,9 +153,15 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   };
 
   const handleDeleteServer = async () => {
-    if (!confirm('Are you sure you want to permanently delete this server and its persistent volume?')) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Delete Server Permanently',
+      message:
+        'This will permanently stop the container and purge its persistent storage volume. All world data, configurations, and backups will be lost. This action cannot be undone.',
+      confirmLabel: 'Delete Forever',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
     try {
       await api.deleteServer(serverId);
       addToast({ type: 'success', title: 'Server deleted successfully.' });
@@ -179,6 +187,7 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const joinAddress = primaryPort ? `${window.location.hostname}:${primaryPort.hostPort}` : 'N/A';
 
   return (
+    <>
     <div className="space-y-6 animate-fade-in">
       {/* Top Navigation & Status */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
@@ -548,5 +557,7 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         </div>
       )}
     </div>
+    {ConfirmDialog}
+    </>
   );
 }
