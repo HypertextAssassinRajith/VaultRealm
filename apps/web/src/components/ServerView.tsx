@@ -246,10 +246,18 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
 
         {/* Quick Power Actions */}
         <div className="flex items-center gap-2">
-          {server.status !== 'running' ? (
+          {server.status === 'pulling' || server.status === 'creating' || server.status === 'starting' ? (
+            <button
+              disabled
+              className="btn btn-primary btn-sm opacity-80 cursor-not-allowed flex items-center gap-1.5"
+            >
+              <span className="inline-block animate-spin text-xs">⟳</span>
+              <span className="capitalize">{server.status}...</span>
+            </button>
+          ) : server.status !== 'running' ? (
             <button
               onClick={() => handlePowerAction('start')}
-              disabled={loadingAction === 'start'}
+              disabled={loadingAction === 'start' || server.status === 'stopping'}
               className="btn btn-primary btn-sm"
             >
               ▶ Start Server
@@ -376,7 +384,41 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
           </div>
           <div className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1">
             {consoleLogs.length === 0 ? (
-              <div className="text-muted-foreground italic">Connecting to live console stream...</div>
+              server.status === 'pulling' ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground my-auto h-full">
+                  <div className="animate-spin text-3xl mb-3 text-primary">⟳</div>
+                  <div className="font-semibold text-foreground text-sm">Downloading Game Server Image</div>
+                  <div className="text-xs max-w-md mt-1 text-muted-foreground/90">
+                    Docker is currently downloading and extracting the container image ({server.templateId}). Console logs will stream automatically once the server process launches.
+                  </div>
+                </div>
+              ) : server.status === 'creating' ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground my-auto h-full">
+                  <div className="animate-spin text-3xl mb-3 text-primary">⟳</div>
+                  <div className="font-semibold text-foreground text-sm">Preparing Server Environment</div>
+                  <div className="text-xs max-w-md mt-1 text-muted-foreground/90">
+                    Allocating ports and configuring persistent storage...
+                  </div>
+                </div>
+              ) : server.status === 'starting' ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground my-auto h-full">
+                  <div className="animate-spin text-3xl mb-3 text-primary">⟳</div>
+                  <div className="font-semibold text-foreground text-sm">Server Starting Up</div>
+                  <div className="text-xs max-w-md mt-1 text-muted-foreground/90">
+                    Waiting for initial log output from container process...
+                  </div>
+                </div>
+              ) : server.status === 'stopped' ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground my-auto h-full">
+                  <div className="text-3xl mb-3 opacity-60">⏹</div>
+                  <div className="font-semibold text-foreground text-sm">Server is Stopped</div>
+                  <div className="text-xs max-w-md mt-1 text-muted-foreground/90">
+                    Click "Start Server" to launch the server and view live console logs.
+                  </div>
+                </div>
+              ) : (
+                <div className="text-muted-foreground italic">Connected to console. Waiting for container log output...</div>
+              )
             ) : (
               consoleLogs.map((line, idx) => (
                 <div

@@ -8,12 +8,11 @@ import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase } from '../db/index.js';
 import { servers, events, diagnoses } from '../db/schema.js';
-import { getDockerDriver } from '../servers/service.js';
-import { getTemplate } from '../servers/templates.js';
+import { getDockerDriver, restartServer, startServer } from '../servers/service.js';
+import { getTemplate, calculateMinecraftHeapMb } from '../servers/templates.js';
 import { getHostCapacityStatus } from '../servers/quota.js';
 import { allocatePorts } from '../servers/ports.js';
 import { prepareServerVolume } from '../servers/volume.js';
-import { restartServer } from '../servers/service.js';
 import type { DiagnosisRule, DiagnosisContext, Finding, FixAction } from './types.js';
 
 import { oomKilledRule } from './rules/oom-killed.js';
@@ -167,18 +166,52 @@ export async function applyDiagnosisFix(
         .where(eq(servers.id, serverId))
         .run();
 
-      await restartServer(serverId, userId, ip);
+      const driver = getDockerDriver();
+      if (server.containerId) {
+        try {
+          await driver.stopContainer(server.containerId, 5);
+        } catch {
+          // ignore
+        }
+        try {
+          await driver.removeContainer(server.containerId, false);
+        } catch {
+          // ignore
+        }
+        db.update(servers).set({ containerId: null }).where(eq(servers.id, serverId)).run();
+      }
+
+      await startServer(serverId, userId, ip);
       return { success: true, message: 'Environment updated and server restarting.' };
     }
 
     case 'raise-ram': {
       const newRam = (action.payload?.ramMb as number) || server.ramMb + 1024;
+      const currentEnv = JSON.parse(server.envJson || '{}') as Record<string, string>;
+      if (server.templateId.startsWith('minecraft')) {
+        currentEnv.MEMORY = `${calculateMinecraftHeapMb(newRam)}M`;
+      }
       db.update(servers)
-        .set({ ramMb: newRam })
+        .set({ ramMb: newRam, envJson: JSON.stringify(currentEnv) })
         .where(eq(servers.id, serverId))
         .run();
 
-      await restartServer(serverId, userId, ip);
+      const driver = getDockerDriver();
+      if (server.containerId) {
+        try {
+          await driver.stopContainer(server.containerId, 5);
+        } catch {
+          // ignore
+        }
+        try {
+          await driver.removeContainer(server.containerId, false);
+        } catch {
+          // ignore
+        }
+        db.update(servers).set({ containerId: null }).where(eq(servers.id, serverId)).run();
+      }
+
+      await startServer(serverId, userId, ip);
       return { success: true, message: `RAM increased to ${newRam} MB and server restarting.` };
     }
 

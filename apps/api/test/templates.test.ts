@@ -4,6 +4,7 @@ import {
   getTemplate,
   getTemplatesSummary,
   gameTemplateSchema,
+  calculateMinecraftHeapMb,
 } from '../src/servers/templates.js';
 
 describe('Game Templates', () => {
@@ -59,5 +60,32 @@ describe('Game Templates', () => {
         }
       }
     }
+  });
+
+  describe('calculateMinecraftHeapMb', () => {
+    it('reserves safe off-heap headroom for 1GB to 8GB allocations', () => {
+      // 1024MB container -> 768MB heap (256MB headroom)
+      expect(calculateMinecraftHeapMb(1024)).toBe(768);
+
+      // 2048MB container -> 1536MB heap (512MB headroom to prevent OOM)
+      expect(calculateMinecraftHeapMb(2048)).toBe(1536);
+
+      // 3072MB container -> 2304MB heap (768MB headroom)
+      expect(calculateMinecraftHeapMb(3072)).toBe(2304);
+
+      // 4096MB container -> 3328MB heap (768MB headroom)
+      expect(calculateMinecraftHeapMb(4096)).toBe(3328);
+
+      // 8192MB container -> 6656MB heap (~20% headroom)
+      expect(calculateMinecraftHeapMb(8192)).toBe(6656);
+    });
+
+    it('ensures heap is strictly less than container ramMb', () => {
+      for (const ram of [1024, 1536, 2048, 3072, 4096, 6144, 8192, 16384]) {
+        const heap = calculateMinecraftHeapMb(ram);
+        expect(heap).toBeLessThan(ram);
+        expect(ram - heap).toBeGreaterThanOrEqual(256);
+      }
+    });
   });
 });
