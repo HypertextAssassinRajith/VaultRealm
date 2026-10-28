@@ -41,20 +41,25 @@ export function AppContent() {
 
   useEffect(() => {
     // Check authentication and setup status
-    api
-      .getMe()
-      .then((user) => {
+    const init = async () => {
+      try {
+        const user = await api.getMe();
         setCurrentUser(user);
-        loadData();
-      })
-      .catch(() => {
+        await loadData();
+      } catch {
         // Check if first-run setup is required
-        api
-          .getSetupStatus()
-          .then((res) => setNeedsSetup(res.needsSetup))
-          .catch(() => setNeedsSetup(false));
-      })
-      .finally(() => setLoading(false));
+        try {
+          const res = await api.getSetupStatus();
+          setNeedsSetup(res.needsSetup);
+        } catch {
+          setNeedsSetup(false);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void init();
   }, []);
 
   const handleLogout = async () => {

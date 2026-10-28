@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { api, type User, type ApiError } from '../api/client';
 import { useToast } from './Toast';
 
@@ -17,12 +17,20 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
 
   const { addToast } = useToast();
 
+  useEffect(() => {
+    if (needsSetup) {
+      setMode('register');
+    }
+  }, [needsSetup]);
+
+  const isRegistering = needsSetup || mode === 'register';
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      if (mode === 'login') {
+      if (!isRegistering) {
         const user = await api.login(username || email, password);
         addToast({ type: 'success', title: `Welcome back, ${user.username}!` });
         onSuccess(user);
@@ -43,7 +51,7 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
       const error = err as ApiError;
       addToast({
         type: 'error',
-        title: mode === 'login' ? 'Login Failed' : 'Registration Failed',
+        title: !isRegistering ? 'Login Failed' : 'Registration Failed',
         message: error.message,
         details: error.details,
       });
@@ -105,7 +113,7 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === 'register' && (
+          {isRegistering && (
             <div>
               <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wider">
                 Email
@@ -123,14 +131,14 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
 
           <div>
             <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wider">
-              {mode === 'login' ? 'Email or Username' : 'Username'}
+              {isRegistering ? 'Username' : 'Email or Username'}
             </label>
             <input
               type="text"
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. gamekeeper"
+              placeholder={isRegistering ? 'admin' : 'e.g. gamekeeper'}
               className="input w-full"
             />
           </div>
@@ -149,7 +157,7 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
             />
           </div>
 
-          {mode === 'register' && !needsSetup && (
+          {isRegistering && !needsSetup && (
             <div>
               <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wider">
                 Invite Code
@@ -174,7 +182,7 @@ export function AuthModal({ needsSetup, onSuccess }: AuthModalProps) {
               <span className="inline-block animate-spin mr-2">⟳</span>
             ) : needsSetup ? (
               'Initialize Admin Realm'
-            ) : mode === 'login' ? (
+            ) : !isRegistering ? (
               'Sign In'
             ) : (
               'Create Account'

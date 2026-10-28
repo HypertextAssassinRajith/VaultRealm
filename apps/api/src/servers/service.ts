@@ -11,7 +11,7 @@ import { getDatabase } from '../db/index.js';
 import { servers, serverPorts, events, serverMembers, diagnoses } from '../db/schema.js';
 import { getConfig } from '../config.js';
 import type { DockerDriver } from '../docker/driver.js';
-import { getTemplate } from './templates.js';
+import { getTemplate, calculateMinecraftHeapMb } from './templates.js';
 import { allocatePorts } from './ports.js';
 import { writeAudit } from '../audit/log.js';
 import type { AuthUser } from '../auth/rbac.js';
@@ -103,9 +103,9 @@ export async function createServer(
         .map((e) => [e.key, e.default]),
     ),
     ...(input.env ?? {}),
-    // Auto-set memory for Minecraft
+    // Auto-set memory for Minecraft with safe JVM off-heap headroom
     ...(template.id.startsWith('minecraft') && !input.env?.MEMORY
-      ? { MEMORY: `${ramMb}M` }
+      ? { MEMORY: `${calculateMinecraftHeapMb(ramMb)}M` }
       : {}),
   });
 
@@ -158,6 +158,13 @@ export async function startServer(serverId: string, userId: string, ip?: string)
   const server = db.select().from(servers).where(eq(servers.id, serverId)).all()[0];
   if (!server) throw makeError(404, 'NOT_FOUND', 'Server not found.');
 
+  if (server.status === 'creating' || server.status === 'pulling' || server.status === 'starting') {
+    throw makeError(409, 'CONFLICT', `Server is already ${server.status}. Please wait for it to finish.`);
+  }
+  if (server.status === 'stopping') {
+    throw makeError(409, 'CONFLICT', 'Server is currently stopping. Please wait.');
+  }
+
   const template = getTemplate(server.templateId);
   if (!template) throw makeError(500, 'INTERNAL_ERROR', 'Server template not found.');
 
@@ -169,21 +176,50 @@ export async function startServer(serverId: string, userId: string, ip?: string)
 
   const config = getConfig();
 
-  // ── If container exists, just start it ─────────────────────────────────
+  // ── If container exists, check if it's still valid or start it ────────
   if (server.containerId) {
     try {
       const inspect = await driver.inspectContainer(server.containerId);
-      if (!inspect.state.running) {
+      const containerRamMb = Math.round(inspect.hostConfig.memory / (1024 * 1024));
+      const hasStaleMemory = containerRamMb > 0 && containerRamMb !== server.ramMb;
+      const isMinecraft = template.id.startsWith('minecraft');
+      const hasUnsafeHeap =
+        isMinecraft &&
+        inspect.config.env?.some((e) => {
+          if (!e.startsWith('MEMORY=')) return false;
+          const val = parseInt(e.substring(7), 10);
+          return !isNaN(val) && val >= server.ramMb;
+        });
+
+      if (hasStaleMemory || hasUnsafeHeap) {
+        // Container has stale memory limits or unsafe Java heap; recreate cleanly
+        try {
+          await driver.stopContainer(server.containerId, 5);
+        } catch {
+          // Container may already be stopped
+        }
+        try {
+          await driver.removeContainer(server.containerId, false);
+        } catch {
+          // Container may already be removed
+        }
+        server.containerId = null;
+        db.update(servers).set({ containerId: null }).where(eq(servers.id, serverId)).run();
+      } else if (!inspect.state.running) {
         db.update(servers).set({ status: 'starting' }).where(eq(servers.id, serverId)).run();
         await driver.startContainer(server.containerId);
         db.update(servers)
           .set({ status: 'running', lastStartedAt: new Date().toISOString() })
           .where(eq(servers.id, serverId))
           .run();
+        return;
+      } else {
+        return;
       }
-      return;
     } catch {
       // Container might have been removed externally — recreate below
+      server.containerId = null;
+      db.update(servers).set({ containerId: null }).where(eq(servers.id, serverId)).run();
     }
   }
 
@@ -199,6 +235,19 @@ export async function startServer(serverId: string, userId: string, ip?: string)
   db.update(servers).set({ status: 'starting' }).where(eq(servers.id, serverId)).run();
 
   const env = JSON.parse(server.envJson) as Record<string, string>;
+
+  // Auto-set or fix safe memory headroom for Minecraft
+  if (template.id.startsWith('minecraft')) {
+    const safeHeap = calculateMinecraftHeapMb(server.ramMb);
+    const configuredHeap = env.MEMORY ? parseInt(env.MEMORY, 10) : 0;
+    if (!env.MEMORY || (!isNaN(configuredHeap) && configuredHeap >= server.ramMb)) {
+      env.MEMORY = `${safeHeap}M`;
+      db.update(servers)
+        .set({ envJson: JSON.stringify(env) })
+        .where(eq(servers.id, serverId))
+        .run();
+    }
+  }
 
   // Generate RCON password if not set
   if (template.rcon && !env[template.rcon.passwordEnv]) {
@@ -302,6 +351,34 @@ export async function restartServer(serverId: string, userId: string, ip?: strin
   db.update(servers).set({ status: 'starting' }).where(eq(servers.id, serverId)).run();
 
   try {
+    const inspect = await driver.inspectContainer(server.containerId);
+    const containerRamMb = Math.round(inspect.hostConfig.memory / (1024 * 1024));
+    const isMinecraft = template?.id.startsWith('minecraft');
+    const hasUnsafeHeap =
+      isMinecraft &&
+      inspect.config.env?.some((e) => {
+        if (!e.startsWith('MEMORY=')) return false;
+        const val = parseInt(e.substring(7), 10);
+        return !isNaN(val) && val >= server.ramMb;
+      });
+
+    if ((containerRamMb > 0 && containerRamMb !== server.ramMb) || hasUnsafeHeap) {
+      // Container has stale memory limits or unsafe Java heap; recreate cleanly
+      try {
+        await driver.stopContainer(server.containerId, timeout);
+      } catch {
+        // ignore
+      }
+      try {
+        await driver.removeContainer(server.containerId, false);
+      } catch {
+        // ignore
+      }
+      db.update(servers).set({ containerId: null }).where(eq(servers.id, serverId)).run();
+      await startServer(serverId, userId, ip);
+      return;
+    }
+
     await driver.restartContainer(server.containerId, timeout);
   } catch {
     // If restart fails, try start

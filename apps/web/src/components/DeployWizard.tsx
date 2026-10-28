@@ -129,11 +129,18 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
               {step === 3 && 'Step 3: Tracking deployment state machine'}
             </p>
           </div>
-          {step !== 3 && (
-            <button onClick={onClose} className="btn btn-ghost btn-sm p-1 text-base leading-none">
-              ✕
-            </button>
-          )}
+          <button
+            onClick={() => {
+              if (step === 3) {
+                addToast({ type: 'info', title: 'Deployment continuing in background.' });
+              }
+              onClose();
+            }}
+            className="btn btn-ghost btn-sm p-1 text-base leading-none"
+            title="Close"
+          >
+            ✕
+          </button>
         </div>
 
         {/* Step 1: Template Selection */}
@@ -289,6 +296,23 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
                   </div>
                 </div>
               ))}
+            </div>
+
+            <div className="pt-4 border-t border-border mt-4 flex items-center justify-between text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block animate-spin text-primary">⟳</span>
+                <span>Deploying server in background...</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  addToast({ type: 'info', title: 'Deployment continuing in background.' });
+                  onClose();
+                }}
+                className="btn btn-secondary btn-sm text-xs py-1 px-3"
+              >
+                Continue in Background
+              </button>
             </div>
           </div>
         )}
