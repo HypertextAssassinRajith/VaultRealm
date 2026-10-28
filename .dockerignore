@@ -1,25 +1,32 @@
 # Dependencies (reinstalled in container)
-node_modules/
+node_modules
+**/node_modules
 
 # Build artifacts (rebuilt in container)
-dist/
+dist
+**/dist
 *.tsbuildinfo
+**/*.tsbuildinfo
 
 # Runtime data
-data/
+data
+**/data
 
 # Git
-.git/
+.git
 .gitignore
 
 # Environment files
 .env
+.env.*
 .env.local
 .env.*.local
+**/.env
+**/.env.*
 
 # IDE
-.vscode/
-.idea/
+.vscode
+.idea
 *.sw?
 *.swo
 
@@ -43,7 +50,10 @@ Caddyfile
 # Logs
 *.log
 logs/
+**/logs
 
 # Test files
 apps/api/test/
 apps/api/vitest.config.*
+apps/bot-runner/test/
+apps/bot-runner/vitest.config.*

@@ -91,6 +91,7 @@ const RAW_TEMPLATES: GameTemplate[] = [
     readyLogRegex: 'Done \\(.*s\\)! For help, type',
     readyTimeoutSec: 300,
     rcon: { port: 25575, passwordEnv: 'RCON_PASSWORD' },
+    uid: 1000,
   },
   {
     id: 'minecraft-bedrock',
@@ -117,6 +118,7 @@ const RAW_TEMPLATES: GameTemplate[] = [
     stopTimeout: 15,
     readyLogRegex: 'Server started\\.',
     readyTimeoutSec: 180,
+    uid: 1000,
   },
   {
     id: 'valheim',
@@ -141,6 +143,7 @@ const RAW_TEMPLATES: GameTemplate[] = [
     stopTimeout: 30,
     readyLogRegex: 'Game server connected',
     readyTimeoutSec: 300,
+    uid: 1000,
   },
   {
     id: 'palworld',
@@ -167,6 +170,7 @@ const RAW_TEMPLATES: GameTemplate[] = [
     readyLogRegex: 'App startup complete',
     readyTimeoutSec: 360,
     rcon: { port: 25575, passwordEnv: 'ADMIN_PASSWORD' },
+    uid: 1000,
   },
   {
     id: 'terraria',
@@ -205,6 +209,26 @@ for (const t of TEMPLATES) {
 
 export function getTemplate(id: string): GameTemplate | undefined {
   return templateMap.get(id);
+}
+
+/**
+ * Calculates the JVM heap size (-Xmx / MEMORY) in MB for a Minecraft container,
+ * reserving necessary headroom for JVM Metaspace, GC structures, and native threads
+ * so the container does not get killed by the Linux cgroup OOM killer.
+ */
+export function calculateMinecraftHeapMb(ramMb: number): number {
+  if (ramMb <= 1024) {
+    return Math.max(512, ramMb - 256);
+  }
+  if (ramMb <= 2048) {
+    return Math.max(1024, ramMb - 512); // e.g., 2048 -> 1536M
+  }
+  if (ramMb <= 4096) {
+    return ramMb - 768; // e.g., 3072 -> 2304M, 4096 -> 3328M
+  }
+  // For large allocations (>4GB), reserve 20% capped at 2048MB headroom
+  const headroom = Math.min(2048, Math.round((ramMb * 0.2) / 256) * 256);
+  return ramMb - headroom;
 }
 
 export function getAllTemplates(): GameTemplate[] {
