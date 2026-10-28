@@ -35,16 +35,22 @@ export async function prepareServerVolume(serverId: string, template: GameTempla
 
   try {
     if (!fs.existsSync(serverDir)) {
-      fs.mkdirSync(serverDir, { recursive: true, mode: 0o755 });
+      fs.mkdirSync(serverDir, { recursive: true, mode: 0o777 });
+    }
+    try {
+      fs.chmodSync(serverDir, 0o777);
+    } catch {
+      // Ignore if filesystem driver does not support chmod
     }
 
-    // On Linux/Unix, if template specifies a non-root UID, chown the directory
-    if (template.uid && process.platform !== 'win32' && process.getuid && process.getuid() === 0) {
+    // On Linux/Unix, if template specifies a target UID (or defaults to 1000), chown the directory
+    const targetUid = template.uid ?? 1000;
+    if (process.platform !== 'win32' && process.getuid && process.getuid() === 0) {
       try {
-        fs.chownSync(serverDir, template.uid, template.uid);
+        fs.chownSync(serverDir, targetUid, targetUid);
       } catch (err) {
         // Log warning if chown fails
-        console.warn(`[volume] Failed to chown ${serverDir} to UID ${template.uid}:`, err);
+        console.warn(`[volume] Failed to chown ${serverDir} to UID ${targetUid}:`, err);
       }
     }
 

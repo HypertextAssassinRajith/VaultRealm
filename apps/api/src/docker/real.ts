@@ -61,8 +61,8 @@ export class RealDockerDriver implements DockerDriver {
         },
         NetworkMode: opts.networkMode,
         ReadonlyRootfs: opts.readOnly ?? false,
-        CapDrop: opts.capDrop ?? ['ALL'],
-        CapAdd: opts.capAdd ?? [],
+        CapDrop: opts.capDrop,
+        CapAdd: opts.capAdd,
         SecurityOpt: opts.securityOpt ?? ['no-new-privileges'],
         LogConfig: {
           Type: (opts.logDriver ?? 'json-file') as 'json-file',
@@ -257,6 +257,8 @@ export class RealDockerDriver implements DockerDriver {
     const stream = await this.docker.pull(image);
 
     await new Promise<void>((resolve, reject) => {
+      const layers = new Map<string, { current: number; total: number; status: string }>();
+
       this.docker.modem.followProgress(
         stream,
         (err: Error | null) => {
@@ -266,14 +268,40 @@ export class RealDockerDriver implements DockerDriver {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dockerode progress event type
         (event: any) => {
           if (onProgress) {
+            const id = event.id ? String(event.id) : null;
+            const status = event.status ? String(event.status) : '';
+            const current = event.progressDetail?.current ?? 0;
+            const total = event.progressDetail?.total ?? 0;
+
+            if (id) {
+              const layer = layers.get(id) ?? { current: 0, total: 0, status: '' };
+              if (total > 0) layer.total = total;
+              if (current > 0) layer.current = current;
+              if (status.includes('complete') || status.includes('Already exists')) {
+                layer.current = layer.total;
+              }
+              layer.status = status;
+              layers.set(id, layer);
+            }
+
+            let totalCurrent = 0;
+            let totalBytes = 0;
+            for (const l of layers.values()) {
+              totalCurrent += l.current;
+              totalBytes += l.total;
+            }
+
             let progressPercent: number | undefined;
-            if (event.progressDetail?.total && event.progressDetail?.current) {
+            if (totalBytes > 0 && totalCurrent > 0) {
+              progressPercent = Math.min(99, Math.round((totalCurrent / totalBytes) * 100));
+            } else if (event.progressDetail?.total && event.progressDetail?.current) {
               progressPercent = Math.round(
                 (event.progressDetail.current / event.progressDetail.total) * 100,
               );
             }
+
             onProgress({
-              status: event.status ?? '',
+              status: status || 'Pulling',
               progress: event.progress,
               progressPercent,
             });

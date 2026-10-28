@@ -20,7 +20,7 @@ import { eq, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase } from '../db/index.js';
 import { servers, serverPorts, events } from '../db/schema.js';
-import { getTemplate } from './templates.js';
+import { getTemplate, calculateMinecraftHeapMb } from './templates.js';
 import { allocatePorts } from './ports.js';
 import { assertQuotaAvailable } from './quota.js';
 import { prepareServerVolume } from './volume.js';
@@ -92,6 +92,7 @@ function emitDeployStep(
   message: string,
   percent?: number,
   error?: string,
+  persistToDb = true,
 ): void {
   const evt: DeployStepEvent = {
     serverId,
@@ -104,20 +105,22 @@ function emitDeployStep(
     timestamp: new Date().toISOString(),
   };
 
-  // Write to DB events table for persistence & debug timeline
-  try {
-    const db = getDatabase();
-    db.insert(events)
-      .values({
-        id: nanoid(),
-        serverId,
-        kind: `deploy.${stepName}.${status}`,
-        message,
-        dataJson: JSON.stringify({ step, stepName, status, percent, error }),
-      })
-      .run();
-  } catch (err) {
-    console.error(`[deploy] Failed to write event for server ${serverId}:`, err);
+  // Write to DB events table for persistence & debug timeline (skip high-frequency intermediate pings)
+  if (persistToDb) {
+    try {
+      const db = getDatabase();
+      db.insert(events)
+        .values({
+          id: nanoid(),
+          serverId,
+          kind: `deploy.${stepName}.${status}`,
+          message,
+          dataJson: JSON.stringify({ step, stepName, status, percent, error }),
+        })
+        .run();
+    } catch (err) {
+      console.error(`[deploy] Failed to write event for server ${serverId}:`, err);
+    }
   }
 
   bufferEvent(evt);
@@ -196,9 +199,9 @@ export async function executeDeploy(
     ...(input.env ?? {}),
   };
 
-  // Auto-set memory for Minecraft
+  // Auto-set memory for Minecraft with safe JVM off-heap headroom
   if (template.id.startsWith('minecraft') && !envMap.MEMORY) {
-    envMap.MEMORY = `${ramMb}M`;
+    envMap.MEMORY = `${calculateMinecraftHeapMb(ramMb)}M`;
   }
 
   // Generate RCON password if missing
@@ -279,24 +282,37 @@ async function runAsyncDeploy(
     emitDeployStep(serverId, 4, 'volume', 'completed', `Storage volume ready at ${serverDir}`);
 
     // ── Step 5: Pull image ───────────────────────────────────────────────────
+    db.update(servers).set({ status: 'pulling' }).where(eq(servers.id, serverId)).run();
     emitDeployStep(serverId, 5, 'pull', 'running', `Checking image ${template.image}...`, 0);
     const hasImg = await driver.hasImage(template.image);
     if (!hasImg) {
-      emitDeployStep(serverId, 5, 'pull', 'running', `Pulling ${template.image}...`, 10);
+      emitDeployStep(serverId, 5, 'pull', 'running', `Pulling ${template.image}...`, 5);
+      let lastPercent = 5;
+      let lastEmitTime = Date.now();
+
       await driver.pullImage(template.image, (progress) => {
-        if (progress.progressPercent !== undefined) {
+        const now = Date.now();
+        const pct = progress.progressPercent ?? lastPercent;
+        const statusText = progress.status ? ` (${progress.status})` : '';
+
+        // Emit if percentage changed or at least 1s elapsed
+        if (pct !== lastPercent || now - lastEmitTime >= 1000) {
+          lastPercent = pct;
+          lastEmitTime = now;
           emitDeployStep(
             serverId,
             5,
             'pull',
             'running',
-            `Pulling ${template.image}: ${progress.progressPercent}%`,
-            progress.progressPercent,
+            `Pulling ${template.image}: ${pct}%${statusText}`,
+            pct,
+            undefined,
+            false,
           );
         }
       });
     }
-    emitDeployStep(serverId, 5, 'pull', 'completed', `Image ${template.image} is ready.`, 100);
+    emitDeployStep(serverId, 5, 'pull', 'completed', `Image ${template.image} is ready.`, 100, undefined, true);
 
     // ── Step 6: Create container ─────────────────────────────────────────────
     emitDeployStep(serverId, 6, 'create', 'running', 'Creating Docker container with resource limits...');

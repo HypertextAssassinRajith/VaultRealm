@@ -8,6 +8,7 @@ import { authRoutes } from './auth/index.js';
 import { serverRoutes, setDockerDriver } from './servers/index.js';
 import { registerRealtimeGateway } from './realtime/index.js';
 import { companionRoutes, botRoutes, registerGateway } from './companion/index.js';
+import { registerStatic, isSpaRoute } from './static.js';
 import { MockDockerDriver } from './docker/mock.js';
 import { RealDockerDriver } from './docker/real.js';
 
@@ -73,6 +74,14 @@ async function main() {
   await app.register(botRoutes);
   await registerGateway(app);
 
+  // ── Static frontend assets (production / built web) ───────────────────────
+  const hasStatic = await registerStatic(app);
+  if (hasStatic) {
+    app.log.info('Serving static frontend assets');
+  } else {
+    app.log.info('Static frontend assets not found; running in API-only mode');
+  }
+
   // ── Error handler ──────────────────────────────────────────────────────────
   app.setErrorHandler((error: Error & { statusCode?: number; code?: string; issues?: Array<{ path: (string | number)[]; message: string }> }, _request, reply) => {
     // Handle Zod validation errors
@@ -96,8 +105,12 @@ async function main() {
     return reply.status(statusCode).send(response);
   });
 
-  // ── 404 handler ────────────────────────────────────────────────────────────
-  app.setNotFoundHandler((_request, reply) => {
+  // ── 404 handler & SPA fallback ─────────────────────────────────────────────
+  app.setNotFoundHandler((request, reply) => {
+    if (hasStatic && isSpaRoute(request.method, request.url)) {
+      return reply.sendFile('index.html');
+    }
+
     return reply.status(404).send({
       code: 'NOT_FOUND',
       message: 'Route not found',
