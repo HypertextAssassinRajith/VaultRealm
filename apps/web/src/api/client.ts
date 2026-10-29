@@ -95,6 +95,19 @@ export interface TimelineEvent {
   dataJson?: string;
 }
 
+export interface ContainerStats {
+  cpuPercent: number;
+  memoryUsageMb: number;
+  memoryLimitMb: number;
+  memoryPercent: number;
+  networkRxBytes: number;
+  networkTxBytes: number;
+  pids: number;
+  diskUsedMb?: number;
+  diskLimitMb?: number;
+  diskPercent?: number;
+}
+
 const TOKEN_KEY = 'vr_session_token';
 
 let currentToken: string | null =
@@ -200,6 +213,7 @@ export const api = {
   // Servers
   listServers: () => request<ServerDetail[]>('/api/servers'),
   getServer: (id: string) => request<ServerDetail>(`/api/servers/${id}`),
+  getServerStats: (id: string) => request<ContainerStats>(`/api/servers/${id}/stats`),
   deployServer: (data: {
     name: string;
     templateId: string;

@@ -277,6 +277,31 @@ describe('Server lifecycle', () => {
       expect(res.statusCode).toBe(200);
     });
 
+    it('returns server resource metrics including CPU, RAM, network, PIDs, and disk', async () => {
+      await app.inject({
+        method: 'POST',
+        url: `/api/servers/${serverId}/start`,
+        cookies: { vr_session: adminCookie },
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/servers/${serverId}/stats`,
+        cookies: { vr_session: adminCookie },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const stats = res.json();
+      expect(typeof stats.cpuPercent).toBe('number');
+      expect(typeof stats.memoryUsageMb).toBe('number');
+      expect(typeof stats.memoryLimitMb).toBe('number');
+      expect(typeof stats.networkRxBytes).toBe('number');
+      expect(typeof stats.networkTxBytes).toBe('number');
+      expect(typeof stats.pids).toBe('number');
+      expect(typeof stats.diskUsedMb).toBe('number');
+      expect(typeof stats.diskLimitMb).toBe('number');
+    });
+
     it('non-owner cannot start server', async () => {
       const inviteRes = await createInvite(app, adminCookie);
       const { cookies: userCookies } = await registerUser(app, inviteRes.json().code);

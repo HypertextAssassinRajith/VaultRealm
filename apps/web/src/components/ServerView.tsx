@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   api,
   type ServerDetail,
+  type ContainerStats,
   type DiagnosisFinding,
   type TimelineEvent,
   type ApiError,
@@ -9,6 +10,7 @@ import {
 import { useToast } from './Toast';
 import { useConfirm } from './ConfirmModal';
 import { CompanionTab } from './CompanionTab';
+import { ServerMetrics, type MetricSnapshot } from './ServerMetrics';
 
 interface ServerViewProps {
   serverId: string;
@@ -24,6 +26,9 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const [findings, setFindings] = useState<DiagnosisFinding[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [stats, setStats] = useState<ContainerStats | null>(null);
+  const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
+  const lastStatsRef = useRef<{ time: number; rx: number; tx: number } | null>(null);
 
   const consoleBottomRef = useRef<HTMLDivElement>(null);
   const { addToast } = useToast();
@@ -66,6 +71,13 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
     if (activeTab === 'debug') {
       fetchDiagnosis();
       fetchEvents();
+    } else if (activeTab === 'overview') {
+      api
+        .getServerStats(serverId)
+        .then((s) => {
+          setStats(s);
+        })
+        .catch(() => {});
     }
   }, [activeTab, serverId]);
 
@@ -87,6 +99,46 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
             setConsoleLogs((prev) => [...prev.slice(-400), String(msg.data)]);
           } else if (msg.type === 'status') {
             setServer((prev) => (prev ? { ...prev, status: msg.data } : null));
+          } else if (msg.type === 'stats') {
+            const rawStats = msg.data as ContainerStats;
+            const now = Date.now();
+            let rxSpeedBps = 0;
+            let txSpeedBps = 0;
+
+            if (lastStatsRef.current) {
+              const dt = Math.max(0.5, (now - lastStatsRef.current.time) / 1000);
+              const drx = Math.max(0, rawStats.networkRxBytes - lastStatsRef.current.rx);
+              const dtx = Math.max(0, rawStats.networkTxBytes - lastStatsRef.current.tx);
+              rxSpeedBps = drx / dt;
+              txSpeedBps = dtx / dt;
+            }
+
+            lastStatsRef.current = {
+              time: now,
+              rx: rawStats.networkRxBytes,
+              tx: rawStats.networkTxBytes,
+            };
+
+            setStats(rawStats);
+
+            const snapshot: MetricSnapshot = {
+              timestamp: new Date().toISOString(),
+              timeLabel: new Date().toLocaleTimeString(),
+              cpuPercent: rawStats.cpuPercent ?? 0,
+              memoryUsageMb: rawStats.memoryUsageMb ?? 0,
+              memoryLimitMb: rawStats.memoryLimitMb ?? 0,
+              memoryPercent: rawStats.memoryPercent ?? 0,
+              diskUsedMb: rawStats.diskUsedMb ?? 0,
+              diskLimitMb: rawStats.diskLimitMb ?? 10240,
+              diskPercent: rawStats.diskPercent ?? 0,
+              networkRxBytes: rawStats.networkRxBytes ?? 0,
+              networkTxBytes: rawStats.networkTxBytes ?? 0,
+              rxSpeedBps,
+              txSpeedBps,
+              pids: rawStats.pids ?? 0,
+            };
+
+            setMetricsHistory((prev) => [...prev.slice(-59), snapshot]);
           } else if (msg.type === 'command_ack') {
             const out = msg.data.output;
             setConsoleLogs((prev) => [...prev, `> ${out}`]);
@@ -321,48 +373,14 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         ))}
       </div>
 
-      {/* Tab: Overview */}
+      {/* Tab: Overview / Live Metrics */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="card p-5 border border-border/80">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-              Memory Allocation
-            </span>
-            <div className="text-2xl font-bold font-mono text-foreground">
-              {server.ramMb} <span className="text-sm font-normal text-muted-foreground">MB</span>
-            </div>
-            <div className="w-full bg-muted rounded-full h-1.5 mt-3 overflow-hidden">
-              <div
-                className="bg-primary h-full rounded-full"
-                style={{ width: `${Math.min(100, (server.ramMb / 8192) * 100)}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="card p-5 border border-border/80">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-              CPU Limit
-            </span>
-            <div className="text-2xl font-bold font-mono text-foreground">
-              {server.cpuLimit} <span className="text-sm font-normal text-muted-foreground">Cores</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">Shared container allocation</p>
-          </div>
-
-          <div className="card p-5 border border-border/80">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-              Port Bindings
-            </span>
-            <div className="space-y-1 mt-1">
-              {server.ports.map((p) => (
-                <div key={p.name} className="flex justify-between text-xs font-mono">
-                  <span className="text-muted-foreground">{p.name}:</span>
-                  <span className="text-primary">{p.hostPort} ➔ {p.containerPort}/{p.protocol}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <ServerMetrics
+          server={server}
+          stats={stats}
+          history={metricsHistory}
+          onClearHistory={() => setMetricsHistory([])}
+        />
       )}
 
       {/* Tab: Console */}

@@ -29,6 +29,7 @@ import { events } from '../db/schema.js';
 import { diagnoseServer, applyDiagnosisFix, type FixAction } from '../diagnosis/index.js';
 import { generateDebugBundle } from './debug-bundle.js';
 import { executeServerCommand } from './console.js';
+import { getServerDiskUsage } from './volume.js';
 
 // ── Validation schemas ───────────────────────────────────────────────────────
 
@@ -236,8 +237,19 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
     await assertCan(user, 'server:view', id);
 
     const detail = await getServerDetail(id);
+    const disk = getServerDiskUsage(id, detail.diskLimitMb);
+
     if (detail.status !== 'running') {
-      return { cpuPercent: 0, memoryUsageMb: 0, memoryLimitMb: detail.ramMb, memoryPercent: 0, pids: 0 };
+      return {
+        cpuPercent: 0,
+        memoryUsageMb: 0,
+        memoryLimitMb: detail.ramMb,
+        memoryPercent: 0,
+        networkRxBytes: 0,
+        networkTxBytes: 0,
+        pids: 0,
+        ...disk,
+      };
     }
 
     const db = getDatabase();
@@ -245,14 +257,36 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
     const server = db.select({ containerId: servers.containerId }).from(servers).where(eq(servers.id, id)).all()[0];
 
     if (!server?.containerId) {
-      return { cpuPercent: 0, memoryUsageMb: 0, memoryLimitMb: detail.ramMb, memoryPercent: 0, pids: 0 };
+      return {
+        cpuPercent: 0,
+        memoryUsageMb: 0,
+        memoryLimitMb: detail.ramMb,
+        memoryPercent: 0,
+        networkRxBytes: 0,
+        networkTxBytes: 0,
+        pids: 0,
+        ...disk,
+      };
     }
 
     try {
       const driver = getDockerDriver();
-      return await driver.getContainerStats(server.containerId);
+      const stats = await driver.getContainerStats(server.containerId);
+      return {
+        ...stats,
+        ...disk,
+      };
     } catch {
-      return { cpuPercent: 0, memoryUsageMb: 0, memoryLimitMb: detail.ramMb, memoryPercent: 0, pids: 0 };
+      return {
+        cpuPercent: 0,
+        memoryUsageMb: 0,
+        memoryLimitMb: detail.ramMb,
+        memoryPercent: 0,
+        networkRxBytes: 0,
+        networkTxBytes: 0,
+        pids: 0,
+        ...disk,
+      };
     }
   });
 

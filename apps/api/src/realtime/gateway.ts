@@ -19,6 +19,7 @@ import { getDatabase } from '../db/index.js';
 import { servers } from '../db/schema.js';
 import { getDockerDriver } from '../servers/service.js';
 import { executeServerCommand } from '../servers/console.js';
+import { getServerDiskUsage } from '../servers/volume.js';
 
 export interface WsMessage {
   type: 'log' | 'stats' | 'status' | 'event' | 'command' | 'command_ack' | 'error';
@@ -129,10 +130,11 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
               // ignore transient log error
             }
 
-            // Send resource stats
+            // Send resource stats (CPU, RAM, network, PIDs, and disk)
             try {
               const stats = await driver.getContainerStats(currentServer.containerId);
-              socket.send(JSON.stringify({ type: 'stats', data: stats }));
+              const disk = getServerDiskUsage(currentServer.id, currentServer.diskLimitMb);
+              socket.send(JSON.stringify({ type: 'stats', data: { ...stats, ...disk } }));
             } catch {
               // ignore transient stats error
             }

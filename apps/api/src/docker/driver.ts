@@ -91,6 +91,9 @@ export interface ContainerStats {
   networkRxBytes: number;
   networkTxBytes: number;
   pids: number;
+  diskUsedMb?: number;
+  diskLimitMb?: number;
+  diskPercent?: number;
 }
 
 export interface PullProgress {
