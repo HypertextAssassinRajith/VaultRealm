@@ -37,7 +37,7 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
   const [botModel, setBotModel] = useState('');
   const [botMode, setBotMode] = useState<'off' | 'manual' | 'auto-solo' | 'always'>('manual');
   const [botAuthMode, setBotAuthMode] = useState<'offline' | 'microsoft' | 'proxy'>('offline');
-  const [botBudget, setBotBudget] = useState(200000);
+  const [botBudget, setBotBudget] = useState<number | ''>(200000);
   const [botRpm, setBotRpm] = useState(10);
   const [savingBot, setSavingBot] = useState(false);
   const [spawningBot, setSpawningBot] = useState(false);
@@ -238,7 +238,7 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
         model: botModel.trim() || null,
         mode: botMode,
         authMode: botAuthMode,
-        dailyTokenBudget: botBudget,
+        dailyTokenBudget: typeof botBudget === 'number' ? Math.max(1000, botBudget) : (parseInt(String(botBudget), 10) || 200000),
         rpmLimit: botRpm,
       });
       addToast({ type: 'success', title: 'Companion configured successfully!' });
@@ -784,16 +784,36 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>
-                Daily Token Budget
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                  Daily Token Budget
+                </label>
+                <span style={{ fontSize: '0.75rem', color: '#818cf8', fontFamily: 'monospace' }}>
+                  {typeof botBudget === 'number' ? botBudget.toLocaleString() : '0'} tokens
+                </span>
+              </div>
               <input
                 type="number"
                 min="1000"
-                max="5000000"
-                step="5000"
+                max="10000000"
+                step="any"
                 value={botBudget}
-                onChange={(e) => setBotBudget(parseInt(e.target.value, 10) || 200000)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '') {
+                    setBotBudget('');
+                  } else {
+                    const parsed = parseInt(val, 10);
+                    setBotBudget(isNaN(parsed) ? '' : parsed);
+                  }
+                }}
+                onBlur={() => {
+                  if (botBudget === '' || botBudget < 1000) {
+                    setBotBudget(1000);
+                  } else if (botBudget > 10000000) {
+                    setBotBudget(10000000);
+                  }
+                }}
                 style={{
                   width: '100%',
                   padding: '9px 12px',
@@ -802,8 +822,37 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
                   border: '1px solid rgba(255, 255, 255, 0.12)',
                   color: '#f8fafc',
                   fontSize: '0.875rem',
+                  fontFamily: 'monospace',
                 }}
+                placeholder="200000"
               />
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                {[
+                  { label: '50k', val: 50000 },
+                  { label: '100k', val: 100000 },
+                  { label: '200k (Default)', val: 200000 },
+                  { label: '500k', val: 500000 },
+                  { label: '1M', val: 1000000 },
+                ].map((preset) => (
+                  <button
+                    key={preset.val}
+                    type="button"
+                    onClick={() => setBotBudget(preset.val)}
+                    style={{
+                      background: botBudget === preset.val ? 'rgba(99, 102, 241, 0.25)' : 'rgba(15, 23, 42, 0.4)',
+                      border: botBudget === preset.val ? '1px solid #6366f1' : '1px solid rgba(255, 255, 255, 0.08)',
+                      color: botBudget === preset.val ? '#818cf8' : '#94a3b8',
+                      fontSize: '0.7rem',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
