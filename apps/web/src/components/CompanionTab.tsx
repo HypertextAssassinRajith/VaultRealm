@@ -449,7 +449,7 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
       </div>
 
       {/* ── Sub-Navigation Tabs ── */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', flexWrap: 'wrap' }}>
+      <div className="no-scrollbar touch-scroll" style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
         {[
           { id: 'control', label: '🎮 Controls & Setup' },
           { id: 'usage', label: '📊 Usage & Budget' },
