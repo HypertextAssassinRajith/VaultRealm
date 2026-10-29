@@ -72,7 +72,9 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   // WebSocket for console logs & stats
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/servers/${serverId}`;
+    const token = api.getToken();
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    const wsUrl = `${protocol}//${window.location.host}/ws/servers/${serverId}${tokenParam}`;
     let ws: WebSocket | null = null;
 
     try {

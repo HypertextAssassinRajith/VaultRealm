@@ -163,13 +163,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
       // ── Auto-login ─────────────────────────────────────────────────────────
       const token = createToken(userId, role);
-      reply.setCookie(COOKIE_NAME, token, getSessionCookieOptions());
+      reply.setCookie(COOKIE_NAME, token, getSessionCookieOptions(request));
 
       return reply.status(201).send({
         id: userId,
         email: body.email.toLowerCase(),
         username: body.username.toLowerCase(),
         role,
+        token,
       });
     },
   );
@@ -228,20 +229,21 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       });
 
       const token = createToken(user.id, user.role);
-      reply.setCookie(COOKIE_NAME, token, getSessionCookieOptions());
+      reply.setCookie(COOKIE_NAME, token, getSessionCookieOptions(request));
 
       return {
         id: user.id,
         email: user.email,
         username: user.username,
         role: user.role,
+        token,
       };
     },
   );
 
   // ── POST /api/auth/logout ──────────────────────────────────────────────────
-  app.post('/api/auth/logout', async (_request, reply) => {
-    reply.setCookie(COOKIE_NAME, '', getSessionCookieOptions(true));
+  app.post('/api/auth/logout', async (request, reply) => {
+    reply.setCookie(COOKIE_NAME, '', getSessionCookieOptions(request, true));
     return { message: 'Logged out.' };
   });
 
