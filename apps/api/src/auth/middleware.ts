@@ -9,11 +9,17 @@ import { verifyToken, COOKIE_NAME } from './sessions.js';
 import type { AuthUser } from './rbac.js';
 
 /**
- * Authenticate the request from the session cookie.
+ * Authenticate the request from the session cookie, Authorization header, or token query param.
  * Returns the user payload or null if not authenticated.
  */
 export function extractUser(request: FastifyRequest): AuthUser | null {
-  const token = request.cookies[COOKIE_NAME];
+  let token = request.cookies[COOKIE_NAME];
+  if (!token && request.headers.authorization?.startsWith('Bearer ')) {
+    token = request.headers.authorization.slice(7).trim();
+  }
+  if (!token && typeof (request.query as Record<string, unknown>)?.token === 'string') {
+    token = (request.query as Record<string, string>).token;
+  }
   if (!token) return null;
 
   const payload = verifyToken(token);

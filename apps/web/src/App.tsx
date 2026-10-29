@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   api,
+  setAuthToken,
   type User,
   type ServerDetail,
   type CapacityStatus,
@@ -47,6 +48,7 @@ export function AppContent() {
         setCurrentUser(user);
         await loadData();
       } catch {
+        setAuthToken(null);
         // Check if first-run setup is required
         try {
           const res = await api.getSetupStatus();

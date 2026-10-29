@@ -76,7 +76,9 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
 
       // Subscribe to Server-Sent Events (SSE) for 9-step progress
       // withCredentials is required so the browser sends the session cookie
-      const eventSource = new EventSource(`/api/servers/${serverId}/deploy-stream`, {
+      const token = api.getToken();
+      const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+      const eventSource = new EventSource(`/api/servers/${serverId}/deploy-stream${tokenParam}`, {
         withCredentials: true,
       });
 

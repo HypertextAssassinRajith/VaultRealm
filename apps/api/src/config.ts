@@ -40,6 +40,9 @@ const envSchema = z.object({
   /** Bot-runner Docker image */
   BOT_RUNNER_IMAGE: z.string().default('vaultrealm/bot-runner:latest'),
 
+  /** Whether session cookies require HTTPS ('true', 'false', or 'auto' based on request protocol) */
+  COOKIE_SECURE: z.enum(['true', 'false', 'auto']).default('auto'),
+
   /** Base URL for panel gateway reachable by containers */
   PANEL_GATEWAY_URL: z.string().default('http://host.docker.internal:3001'),
 

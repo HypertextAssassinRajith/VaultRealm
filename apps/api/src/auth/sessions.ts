@@ -6,6 +6,7 @@
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { FastifyRequest } from 'fastify';
 import { getConfig } from '../config.js';
 
 export interface SessionPayload {
@@ -91,15 +92,39 @@ export function verifyToken(token: string): SessionPayload | null {
 
 /**
  * Cookie options for the session token.
+ * Dynamically infers secure flag from request protocol/headers, or honors COOKIE_SECURE setting.
  */
-export function getSessionCookieOptions(clear = false) {
+export function getSessionCookieOptions(
+  requestOrClear?: FastifyRequest | boolean,
+  clear = false,
+) {
+  let req: FastifyRequest | undefined;
+  let isClear = clear;
+
+  if (typeof requestOrClear === 'boolean') {
+    isClear = requestOrClear;
+  } else {
+    req = requestOrClear;
+  }
+
   const config = getConfig();
+  const isHttps =
+    req?.protocol === 'https' ||
+    req?.headers['x-forwarded-proto'] === 'https';
+
+  const isSecure =
+    config.COOKIE_SECURE === 'true'
+      ? true
+      : config.COOKIE_SECURE === 'false'
+        ? false
+        : isHttps;
+
   return {
     path: '/',
     httpOnly: true,
-    secure: config.NODE_ENV === 'production',
+    secure: isSecure,
     sameSite: 'lax' as const,
-    maxAge: clear ? 0 : SESSION_DURATION_S,
+    maxAge: isClear ? 0 : SESSION_DURATION_S,
   };
 }
 

@@ -32,8 +32,14 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
     async (socket: WebSocket, request: FastifyRequest) => {
       const { id: serverId } = request.params as { id: string };
 
-      // 1. Authenticate via session cookie
-      const token = request.cookies[COOKIE_NAME];
+      // 1. Authenticate via session cookie, Bearer header, or token query param
+      let token = request.cookies[COOKIE_NAME];
+      if (!token && request.headers.authorization?.startsWith('Bearer ')) {
+        token = request.headers.authorization.slice(7).trim();
+      }
+      if (!token && typeof (request.query as Record<string, unknown>)?.token === 'string') {
+        token = (request.query as Record<string, string>).token;
+      }
       if (!token) {
         socket.send(JSON.stringify({ type: 'error', data: 'Authentication required' }));
         socket.close(4401, 'Unauthorized');

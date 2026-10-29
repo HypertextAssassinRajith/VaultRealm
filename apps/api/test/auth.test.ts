@@ -292,7 +292,9 @@ describe('Auth routes', () => {
   // ── Me ───────────────────────────────────────────────────────────────────
   describe('GET /api/me', () => {
     it('returns authenticated user profile', async () => {
-      const { cookies } = await registerAdmin(app);
+      const { cookies, response } = await registerAdmin(app);
+      const token = response.json().token;
+      expect(token).toBeDefined();
 
       const res = await app.inject({
         method: 'GET',
@@ -308,6 +310,56 @@ describe('Auth routes', () => {
       expect(body.quotaServers).toBeDefined();
       // Should never return password hash
       expect(body.passwordHash).toBeUndefined();
+    });
+
+    it('authenticates via Authorization Bearer header without cookies', async () => {
+      const { response } = await registerAdmin(app);
+      const token = response.json().token;
+      expect(token).toBeDefined();
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/me',
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().username).toBe('admin');
+    });
+
+    it('infers secure cookie attribute only when request is HTTPS', async () => {
+      await registerAdmin(app);
+
+      // Plain HTTP request (no HTTPS headers) -> no Secure attribute in cookie
+      const httpRes = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: {
+          login: 'admin',
+          password: 'password123!',
+        },
+      });
+      expect(httpRes.statusCode).toBe(200);
+      const httpCookie = String(httpRes.headers['set-cookie']);
+      expect(httpCookie).not.toContain('Secure');
+
+      // HTTPS request with X-Forwarded-Proto: https -> sets Secure attribute in cookie
+      const httpsRes = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        headers: {
+          'x-forwarded-proto': 'https',
+        },
+        payload: {
+          login: 'admin',
+          password: 'password123!',
+        },
+      });
+      expect(httpsRes.statusCode).toBe(200);
+      const httpsCookie = String(httpsRes.headers['set-cookie']);
+      expect(httpsCookie).toContain('Secure');
     });
 
     it('returns 401 without session', async () => {

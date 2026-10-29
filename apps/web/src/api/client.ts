@@ -13,6 +13,7 @@ export interface User {
   email: string;
   username: string;
   role: 'admin' | 'user';
+  token?: string;
 }
 
 export interface ServerPort {
@@ -94,16 +95,39 @@ export interface TimelineEvent {
   dataJson?: string;
 }
 
+const TOKEN_KEY = 'vr_session_token';
+
+let currentToken: string | null =
+  typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+
+export function getAuthToken(): string | null {
+  return currentToken;
+}
+
+export function setAuthToken(token: string | null): void {
+  currentToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
   if (options.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
+  if (currentToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${currentToken}`);
+  }
 
   const res = await fetch(path, {
     ...options,
     headers,
-    credentials: 'same-origin',
+    credentials: 'include',
   });
 
   if (!res.ok) {
@@ -138,17 +162,34 @@ export const api = {
   // Auth
   getSetupStatus: () => request<{ needsSetup: boolean }>('/api/auth/setup-status'),
   getMe: () => request<User>('/api/me'),
-  login: (login: string, password: string) =>
-    request<User>('/api/auth/login', {
+  login: async (login: string, password: string) => {
+    const user = await request<User>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ login, password }),
-    }),
-  register: (body: { email: string; username: string; password: string; inviteCode?: string }) =>
-    request<User>('/api/auth/register', {
+    });
+    if (user.token) {
+      setAuthToken(user.token);
+    }
+    return user;
+  },
+  register: async (body: { email: string; username: string; password: string; inviteCode?: string }) => {
+    const user = await request<User>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify(body),
-    }),
-  logout: () => request<{ message: string }>('/api/auth/logout', { method: 'POST' }),
+    });
+    if (user.token) {
+      setAuthToken(user.token);
+    }
+    return user;
+  },
+  logout: async () => {
+    try {
+      return await request<{ message: string }>('/api/auth/logout', { method: 'POST' });
+    } finally {
+      setAuthToken(null);
+    }
+  },
+  getToken: () => getAuthToken(),
 
   // System
   getCapacity: () => request<CapacityStatus>('/api/system/capacity'),
