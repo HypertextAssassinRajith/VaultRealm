@@ -12,6 +12,7 @@ import { requireAuth, getRequestUser } from '../auth/middleware.js';
 import { assertCan } from '../auth/rbac.js';
 import { validate } from '../validation.js';
 import { getAllTemplates } from './templates.js';
+import { getTemplateVersions } from './versions.js';
 import {
   startServer,
   stopServer,
@@ -84,8 +85,28 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
         label: e.label,
         default: e.default,
         required: e.required,
+        description: e.description,
+        options: e.options,
       })),
     }));
+  });
+
+  // ── GET /api/templates/:templateId/versions ────────────────────────────────
+  app.get('/api/templates/:templateId/versions', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    await assertCan(user, 'server:create');
+
+    const params = request.params as { templateId: string };
+    const templateId = params.templateId;
+    if (!templateId) {
+      return reply.status(400).send({
+        code: 'INVALID_TEMPLATE',
+        message: 'Template ID is required.',
+      });
+    }
+
+    const versions = await getTemplateVersions(templateId);
+    return versions;
   });
 
   // ── GET /api/system/capacity ───────────────────────────────────────────────

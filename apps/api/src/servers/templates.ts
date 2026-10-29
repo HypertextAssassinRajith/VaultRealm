@@ -15,6 +15,13 @@ export const templatePortSchema = z.object({
 
 export type TemplatePort = z.infer<typeof templatePortSchema>;
 
+export const templateEnvVarOptionSchema = z.object({
+  label: z.string().min(1),
+  value: z.string(),
+});
+
+export type TemplateEnvVarOption = z.infer<typeof templateEnvVarOptionSchema>;
+
 export const templateEnvVarSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),
@@ -22,6 +29,7 @@ export const templateEnvVarSchema = z.object({
   required: z.boolean().optional(),
   secret: z.boolean().optional(),
   description: z.string().optional(),
+  options: z.array(templateEnvVarOptionSchema).optional(),
 });
 
 export type TemplateEnvVar = z.infer<typeof templateEnvVarSchema>;
@@ -75,13 +83,53 @@ const RAW_TEMPLATES: GameTemplate[] = [
     ],
     env: [
       { key: 'EULA', label: 'Accept EULA', default: 'TRUE', required: true },
-      { key: 'TYPE', label: 'Server type (PAPER, FABRIC, FORGE, VANILLA)', default: 'PAPER' },
-      { key: 'VERSION', label: 'Minecraft version', default: 'LATEST' },
+      {
+        key: 'TYPE',
+        label: 'Server Type (Engine / Mod Loader)',
+        default: 'PAPER',
+        options: [
+          { label: 'Paper (Recommended - High Performance & Plugins)', value: 'PAPER' },
+          { label: 'Purpur (Paper fork with extra gameplay options)', value: 'PURPUR' },
+          { label: 'Fabric (Lightweight & Modern Modding)', value: 'FABRIC' },
+          { label: 'Forge (Traditional Modding)', value: 'FORGE' },
+          { label: 'NeoForge (Modern Forge fork)', value: 'NEOFORGE' },
+          { label: 'Spigot (Classic Bukkit/Spigot Plugins)', value: 'SPIGOT' },
+          { label: 'Vanilla (Official Mojang Server)', value: 'VANILLA' },
+          { label: 'Folia (Multithreaded Paper for large servers)', value: 'FOLIA' },
+          { label: 'Quilt (QuiltMC Mod Loader)', value: 'QUILT' },
+        ],
+      },
+      {
+        key: 'VERSION',
+        label: 'Minecraft Version',
+        default: 'LATEST',
+        description: 'Pulled from open-source Mojang/Fabric manifests',
+      },
       { key: 'MEMORY', label: 'Java heap (auto-set)', default: '' },
       { key: 'MOTD', label: 'Message of the day', default: 'A VaultRealm Minecraft Server' },
       { key: 'MAX_PLAYERS', label: 'Max players', default: '20' },
-      { key: 'DIFFICULTY', label: 'Difficulty', default: 'normal' },
-      { key: 'MODE', label: 'Game mode', default: 'survival' },
+      {
+        key: 'DIFFICULTY',
+        label: 'Difficulty',
+        default: 'normal',
+        options: [
+          { label: 'Peaceful', value: 'peaceful' },
+          { label: 'Easy', value: 'easy' },
+          { label: 'Normal', value: 'normal' },
+          { label: 'Hard', value: 'hard' },
+        ],
+      },
+      {
+        key: 'MODE',
+        label: 'Game mode',
+        default: 'survival',
+        options: [
+          { label: 'Survival', value: 'survival' },
+          { label: 'Creative', value: 'creative' },
+          { label: 'Adventure', value: 'adventure' },
+          { label: 'Spectator', value: 'spectator' },
+        ],
+      },
       { key: 'ENABLE_RCON', label: 'Enable RCON', default: 'true' },
       { key: 'RCON_PASSWORD', label: 'RCON password', default: '', secret: true },
     ],
@@ -109,8 +157,39 @@ const RAW_TEMPLATES: GameTemplate[] = [
     env: [
       { key: 'EULA', label: 'Accept EULA', default: 'TRUE', required: true },
       { key: 'SERVER_NAME', label: 'Server name', default: 'VaultRealm Bedrock' },
-      { key: 'GAMEMODE', label: 'Game mode', default: 'survival' },
-      { key: 'DIFFICULTY', label: 'Difficulty', default: 'normal' },
+      {
+        key: 'VERSION',
+        label: 'Bedrock Version',
+        default: 'LATEST',
+        options: [
+          { label: 'LATEST (Auto-update to newest official release)', value: 'LATEST' },
+          { label: 'PREVIEW (Preview / Beta channel)', value: 'PREVIEW' },
+          { label: '1.21.50', value: '1.21.50' },
+          { label: '1.21.40', value: '1.21.40' },
+          { label: '1.21.30', value: '1.21.30' },
+        ],
+      },
+      {
+        key: 'GAMEMODE',
+        label: 'Game mode',
+        default: 'survival',
+        options: [
+          { label: 'Survival', value: 'survival' },
+          { label: 'Creative', value: 'creative' },
+          { label: 'Adventure', value: 'adventure' },
+        ],
+      },
+      {
+        key: 'DIFFICULTY',
+        label: 'Difficulty',
+        default: 'normal',
+        options: [
+          { label: 'Peaceful', value: 'peaceful' },
+          { label: 'Easy', value: 'easy' },
+          { label: 'Normal', value: 'normal' },
+          { label: 'Hard', value: 'hard' },
+        ],
+      },
       { key: 'MAX_PLAYERS', label: 'Max players', default: '10' },
     ],
     dataDir: '/data',
@@ -187,7 +266,16 @@ const RAW_TEMPLATES: GameTemplate[] = [
     ],
     env: [
       { key: 'WORLD_FILENAME', label: 'World filename', default: 'VaultRealm.wld' },
-      { key: 'AUTOCREATE', label: 'Auto-create world size (1=small, 2=medium, 3=large)', default: '2' },
+      {
+        key: 'AUTOCREATE',
+        label: 'Auto-create world size',
+        default: '2',
+        options: [
+          { label: 'Small World (1)', value: '1' },
+          { label: 'Medium World (2)', value: '2' },
+          { label: 'Large World (3)', value: '3' },
+        ],
+      },
     ],
     dataDir: '/root/.local/share/Terraria/Worlds',
     stopCommand: 'exit',
@@ -267,6 +355,7 @@ export function getTemplatesSummary(): Array<{
       required: e.required,
       secret: e.secret,
       description: e.description,
+      options: e.options,
     })),
   }));
 }

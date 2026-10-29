@@ -23,6 +23,12 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
   const [serverName, setServerName] = useState('');
   const [ramMb, setRamMb] = useState(2048);
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
+  const [availableVersions, setAvailableVersions] = useState<string[]>(['LATEST']);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [versionSource, setVersionSource] = useState<string>('');
+  const [isCustomType, setIsCustomType] = useState(false);
+  const [isCustomVersion, setIsCustomVersion] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [deployEvents, setDeployEvents] = useState<StepEvent[]>([
     { step: 1, stepName: 'validate', status: 'pending', message: 'Validate template & input parameters' },
@@ -47,6 +53,9 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
     setSelectedTemplate(t);
     setServerName(`My ${t.name} Server`);
     setRamMb(t.defaultRamMb);
+    setIsCustomType(false);
+    setIsCustomVersion(false);
+    setShowAdvanced(false);
 
     // Default envs
     const defaults: Record<string, string> = {};
@@ -57,6 +66,52 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
     }
     setEnvValues(defaults);
     setStep(2);
+
+    // Pull open-source versions for Minecraft or versioned games
+    const hasVersionKey = t.env.some((e) => e.key === 'VERSION');
+    if (hasVersionKey) {
+      setLoadingVersions(true);
+      api
+        .getTemplateVersions(t.id)
+        .then((res) => {
+          setAvailableVersions(res.versions);
+          setVersionSource(res.source);
+        })
+        .catch(() => {
+          // Direct client-side fetch fallback to official Mojang manifest
+          fetch('https://launchermeta.mojang.com/mc/game/version_manifest_v2.json')
+            .then((r) => r.json())
+            .then((data: { versions?: Array<{ id: string; type: string }> }) => {
+              const releases = (data.versions || [])
+                .filter((v) => v.type === 'release')
+                .map((v) => v.id);
+              setAvailableVersions(['LATEST', ...releases]);
+              setVersionSource('Mojang Web API (Direct)');
+            })
+            .catch(() => {
+              setAvailableVersions([
+                'LATEST',
+                '1.21.4',
+                '1.21.3',
+                '1.21.1',
+                '1.20.6',
+                '1.20.4',
+                '1.20.1',
+                '1.19.4',
+                '1.18.2',
+                '1.16.5',
+                '1.12.2',
+              ]);
+              setVersionSource('Built-in Manifest');
+            });
+        })
+        .finally(() => {
+          setLoadingVersions(false);
+        });
+    } else {
+      setAvailableVersions(['LATEST']);
+      setVersionSource('');
+    }
   };
 
   const handleStartDeploy = async () => {
@@ -230,22 +285,258 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
                 Server Settings
               </span>
+
+              {/* Primary Settings (TYPE, VERSION, MOTD) */}
               {selectedTemplate.env
                 .filter((e) => e.key !== 'MEMORY' && e.key !== 'EULA')
                 .slice(0, 3)
-                .map((env) => (
-                  <div key={env.key}>
-                    <label className="block text-xs text-foreground mb-1">
-                      {env.label} <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={envValues[env.key] ?? ''}
-                      onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
-                      className="input w-full text-xs"
-                    />
-                  </div>
-                ))}
+                .map((env) => {
+                  // 1. VERSION dropdown (pulls from open-source web APIs)
+                  if (env.key === 'VERSION') {
+                    const currentVersion = envValues[env.key] ?? env.default ?? 'LATEST';
+                    return (
+                      <div key={env.key}>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-semibold text-foreground">
+                            {env.label}{' '}
+                            <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
+                          </label>
+                          <span
+                            className="text-[10px] text-emerald-400 font-mono flex items-center gap-1.5 bg-emerald-950/40 border border-emerald-500/20 px-2 py-0.5 rounded"
+                            title={versionSource}
+                          >
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full bg-emerald-400 ${
+                                loadingVersions ? 'animate-ping' : 'animate-pulse'
+                              }`}
+                            ></span>
+                            {loadingVersions ? 'Pulling from web...' : (versionSource || 'Mojang Manifest')}
+                          </span>
+                        </div>
+
+                        <select
+                          value={isCustomVersion ? 'CUSTOM' : currentVersion}
+                          onChange={(e) => {
+                            if (e.target.value === 'CUSTOM') {
+                              setIsCustomVersion(true);
+                              setEnvValues({ ...envValues, [env.key]: '' });
+                            } else {
+                              setIsCustomVersion(false);
+                              setEnvValues({ ...envValues, [env.key]: e.target.value });
+                            }
+                          }}
+                          className="input w-full text-xs font-mono bg-card"
+                        >
+                          <option value="LATEST">LATEST (Auto-update to newest official release)</option>
+                          {availableVersions
+                            .filter((v) => v !== 'LATEST')
+                            .map((v) => (
+                              <option key={v} value={v}>
+                                {v}
+                              </option>
+                            ))}
+                          <option value="CUSTOM">✏️ Custom / Snapshot Version...</option>
+                        </select>
+
+                        {isCustomVersion && (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="Enter version or snapshot (e.g. 1.21.4 or 24w45a)"
+                              value={envValues[env.key] ?? ''}
+                              onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
+                              className="input w-full text-xs font-mono"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCustomVersion(false);
+                                setEnvValues({ ...envValues, [env.key]: 'LATEST' });
+                              }}
+                              className="btn btn-secondary text-xs px-2.5 py-1.5 shrink-0"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // 2. TYPE dropdown (Engine / Mod Loader)
+                  if (env.key === 'TYPE') {
+                    const currentType = envValues[env.key] ?? env.default ?? 'PAPER';
+                    const typeOptions = env.options ?? [
+                      { label: 'Paper (Recommended - High Performance & Plugins)', value: 'PAPER' },
+                      { label: 'Purpur (Paper fork with extra customization)', value: 'PURPUR' },
+                      { label: 'Fabric (Lightweight & Modern Modding)', value: 'FABRIC' },
+                      { label: 'Forge (Traditional Modding)', value: 'FORGE' },
+                      { label: 'NeoForge (Modern Forge fork)', value: 'NEOFORGE' },
+                      { label: 'Spigot (Classic Plugins)', value: 'SPIGOT' },
+                      { label: 'Vanilla (Official Mojang Server)', value: 'VANILLA' },
+                      { label: 'Folia (Multithreaded Paper for high player count)', value: 'FOLIA' },
+                      { label: 'Quilt (QuiltMC Mod Loader)', value: 'QUILT' },
+                    ];
+
+                    return (
+                      <div key={env.key}>
+                        <label className="block text-xs font-semibold text-foreground mb-1">
+                          {env.label}{' '}
+                          <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
+                        </label>
+
+                        <select
+                          value={isCustomType ? 'CUSTOM' : currentType}
+                          onChange={(e) => {
+                            if (e.target.value === 'CUSTOM') {
+                              setIsCustomType(true);
+                              setEnvValues({ ...envValues, [env.key]: '' });
+                            } else {
+                              setIsCustomType(false);
+                              setEnvValues({ ...envValues, [env.key]: e.target.value });
+                            }
+                          }}
+                          className="input w-full text-xs bg-card"
+                        >
+                          {typeOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                          <option value="CUSTOM">✏️ Custom / Other Type...</option>
+                        </select>
+
+                        {isCustomType && (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="Enter custom server type (e.g. MOHIST, MAGMA)"
+                              value={envValues[env.key] ?? ''}
+                              onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
+                              className="input w-full text-xs"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCustomType(false);
+                                setEnvValues({ ...envValues, [env.key]: env.default ?? 'PAPER' });
+                              }}
+                              className="btn btn-secondary text-xs px-2.5 py-1.5 shrink-0"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // 3. Dropdown for any env with options (e.g. DIFFICULTY, MODE, etc.)
+                  if (env.options && env.options.length > 0) {
+                    const currentValue = envValues[env.key] ?? env.default ?? env.options[0]?.value;
+                    return (
+                      <div key={env.key}>
+                        <label className="block text-xs font-semibold text-foreground mb-1">
+                          {env.label}{' '}
+                          <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
+                        </label>
+                        <select
+                          value={currentValue}
+                          onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
+                          className="input w-full text-xs bg-card"
+                        >
+                          {env.options.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  }
+
+                  // 4. Default text input (e.g. MOTD)
+                  return (
+                    <div key={env.key}>
+                      <label className="block text-xs font-semibold text-foreground mb-1">
+                        {env.label}{' '}
+                        <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={envValues[env.key] ?? ''}
+                        onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
+                        className="input w-full text-xs"
+                      />
+                    </div>
+                  );
+                })}
+
+              {/* Advanced Settings Toggle */}
+              {selectedTemplate.env.filter((e) => e.key !== 'MEMORY' && e.key !== 'EULA').length > 3 && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    className="text-xs text-primary/90 hover:text-primary transition-colors flex items-center gap-1 font-mono"
+                  >
+                    <span>{showAdvanced ? '▾' : '▸'}</span>
+                    <span>
+                      {showAdvanced
+                        ? 'Hide Advanced Options'
+                        : '⚙️ Show Advanced Options (Difficulty, Mode, Players)'}
+                    </span>
+                  </button>
+
+                  {showAdvanced && (
+                    <div className="mt-3 space-y-3 pl-3 border-l-2 border-primary/20">
+                      {selectedTemplate.env
+                        .filter((e) => e.key !== 'MEMORY' && e.key !== 'EULA')
+                        .slice(3)
+                        .map((env) => {
+                          if (env.options && env.options.length > 0) {
+                            const val = envValues[env.key] ?? env.default ?? env.options[0]?.value;
+                            return (
+                              <div key={env.key}>
+                                <label className="block text-xs font-semibold text-foreground mb-1">
+                                  {env.label}{' '}
+                                  <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
+                                </label>
+                                <select
+                                  value={val}
+                                  onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
+                                  className="input w-full text-xs bg-card"
+                                >
+                                  {env.options.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div key={env.key}>
+                              <label className="block text-xs font-semibold text-foreground mb-1">
+                                {env.label}{' '}
+                                <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={envValues[env.key] ?? ''}
+                                onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
+                                className="input w-full text-xs"
+                              />
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="pt-4 flex gap-3">

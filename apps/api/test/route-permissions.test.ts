@@ -43,6 +43,7 @@ describe('Route permission enumeration', () => {
       { method: 'GET', path: '/api/admin/invites' },
       { method: 'DELETE', path: '/api/admin/invites/test-id' },
       { method: 'GET', path: '/api/templates' },
+      { method: 'GET', path: '/api/templates/minecraft-java/versions' },
       { method: 'GET', path: '/api/system/capacity' },
       { method: 'GET', path: '/api/servers' },
       { method: 'POST', path: '/api/servers' },

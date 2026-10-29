@@ -37,6 +37,20 @@ export interface ServerDetail {
   lastStartedAt: string | null;
 }
 
+export interface TemplateEnvVarOption {
+  label: string;
+  value: string;
+}
+
+export interface TemplateEnvVar {
+  key: string;
+  label: string;
+  default?: string;
+  required?: boolean;
+  description?: string;
+  options?: TemplateEnvVarOption[];
+}
+
 export interface GameTemplate {
   id: string;
   name: string;
@@ -47,7 +61,14 @@ export interface GameTemplate {
   defaultCpu: number;
   defaultDiskMb: number;
   ports: Array<{ name: string; containerPort: number; protocol: 'tcp' | 'udp' }>;
-  env: Array<{ key: string; label: string; default?: string; required?: boolean }>;
+  env: TemplateEnvVar[];
+}
+
+export interface TemplateVersionsResponse {
+  latest: string;
+  recommended: string;
+  versions: string[];
+  source: string;
 }
 
 export interface CapacityStatus {
@@ -209,6 +230,8 @@ export const api = {
 
   // Templates
   listTemplates: () => request<GameTemplate[]>('/api/templates'),
+  getTemplateVersions: (templateId: string) =>
+    request<TemplateVersionsResponse>(`/api/templates/${encodeURIComponent(templateId)}/versions`),
 
   // Servers
   listServers: () => request<ServerDetail[]>('/api/servers'),
