@@ -70,6 +70,10 @@ describe('Route permission enumeration', () => {
       { method: 'POST', path: '/api/servers/srv-test/players/ban-ip' },
       { method: 'POST', path: '/api/servers/srv-test/players/unban-ip' },
       { method: 'POST', path: '/api/servers/srv-test/players/op' },
+      { method: 'GET', path: '/api/servers/srv-test/properties' },
+      { method: 'POST', path: '/api/servers/srv-test/properties/property' },
+      { method: 'PUT', path: '/api/servers/srv-test/properties' },
+      { method: 'POST', path: '/api/servers/srv-test/properties/spawn-point' },
     ];
 
     for (const route of protectedRoutes) {
