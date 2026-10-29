@@ -12,6 +12,7 @@ import { useConfirm } from './ConfirmModal';
 import { CompanionTab } from './CompanionTab';
 import { ServerMetrics, type MetricSnapshot } from './ServerMetrics';
 import { ServerModsTab } from './ServerModsTab';
+import { ServerPlayersTab } from './ServerPlayersTab';
 
 interface ServerViewProps {
   serverId: string;
@@ -21,7 +22,7 @@ interface ServerViewProps {
 
 export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const [server, setServer] = useState<ServerDetail | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'console' | 'mods' | 'debug' | 'companion' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'console' | 'players' | 'mods' | 'debug' | 'companion' | 'settings'>('overview');
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [commandInput, setCommandInput] = useState('');
   const [findings, setFindings] = useState<DiagnosisFinding[]>([]);
@@ -360,6 +361,7 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         {[
           { id: 'overview', label: 'Overview', icon: '📊' },
           { id: 'console', label: 'Live Console', icon: '💻' },
+          { id: 'players', label: 'Players & Bans', icon: '👥' },
           { id: 'mods', label: 'Mods & Addons', icon: '🧩' },
           { id: 'debug', label: 'Auto-Diagnosis', icon: '🔍' },
           { id: 'companion', label: 'AI Companion', icon: '🤖' },
@@ -367,7 +369,7 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as 'overview' | 'console' | 'mods' | 'debug' | 'companion' | 'settings')}
+            onClick={() => setActiveTab(tab.id as 'overview' | 'console' | 'players' | 'mods' | 'debug' | 'companion' | 'settings')}
             className={`py-2 px-4 text-xs font-semibold rounded-t-lg transition-all cursor-pointer flex items-center gap-2 border-b-2 -mb-px ${
               activeTab === tab.id
                 ? 'border-primary text-primary bg-primary/10'
@@ -484,6 +486,11 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
             </button>
           </form>
         </div>
+      )}
+
+      {/* Tab: Players & Moderation */}
+      {activeTab === 'players' && (
+        <ServerPlayersTab server={server} />
       )}
 
       {/* Tab: Mods & Addons */}

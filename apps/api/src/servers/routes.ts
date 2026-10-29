@@ -22,6 +22,15 @@ import {
   detectServerGameVersion,
   saveUploadedMod,
 } from './mods.js';
+import {
+  getServerPlayersData,
+  kickPlayer,
+  banPlayer,
+  unbanPlayer,
+  banIp,
+  unbanIp,
+  setPlayerOp,
+} from './players.js';
 import { writeAudit } from '../audit/log.js';
 import {
   startServer,
@@ -90,6 +99,34 @@ const toggleModSchema = z.object({
 const uploadModSchema = z.object({
   filename: z.string().min(1).max(255),
   contentBase64: z.string().min(1, 'File content cannot be empty'),
+});
+
+const kickPlayerSchema = z.object({
+  player: z.string().min(1, 'Player name is required').max(64),
+  reason: z.string().max(255).optional(),
+});
+
+const banPlayerSchema = z.object({
+  player: z.string().min(1, 'Player name is required').max(64),
+  reason: z.string().max(255).optional(),
+});
+
+const unbanPlayerSchema = z.object({
+  player: z.string().min(1, 'Player name is required').max(64),
+});
+
+const banIpSchema = z.object({
+  ipOrPlayer: z.string().min(1, 'IP address or player name is required').max(64),
+  reason: z.string().max(255).optional(),
+});
+
+const unbanIpSchema = z.object({
+  ip: z.string().min(1, 'IP address is required').max(64),
+});
+
+const setOpSchema = z.object({
+  player: z.string().min(1, 'Player name is required').max(64),
+  op: z.boolean(),
 });
 
 // ── Route registration ───────────────────────────────────────────────────────
@@ -506,5 +543,146 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return reply.status(200).send({ message: 'Mod file deleted.' });
+  });
+
+  // ── GET /api/servers/:id/players ───────────────────────────────────────────
+  app.get('/api/servers/:id/players', { preHandler: [requireAuth] }, async (request) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:view', id);
+
+    return getServerPlayersData(id, user.id);
+  });
+
+  // ── POST /api/servers/:id/players/kick ─────────────────────────────────────
+  app.post('/api/servers/:id/players/kick', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(kickPlayerSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await kickPlayer(id, user.id, parsed.data.player, parsed.data.reason, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.player.kick',
+      target: id,
+      ip: request.ip,
+      data: { player: parsed.data.player, reason: parsed.data.reason },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/ban ──────────────────────────────────────
+  app.post('/api/servers/:id/players/ban', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(banPlayerSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await banPlayer(id, user.id, parsed.data.player, parsed.data.reason, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.player.ban',
+      target: id,
+      ip: request.ip,
+      data: { player: parsed.data.player, reason: parsed.data.reason },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/unban ────────────────────────────────────
+  app.post('/api/servers/:id/players/unban', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(unbanPlayerSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await unbanPlayer(id, user.id, parsed.data.player, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.player.unban',
+      target: id,
+      ip: request.ip,
+      data: { player: parsed.data.player },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/ban-ip ───────────────────────────────────
+  app.post('/api/servers/:id/players/ban-ip', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(banIpSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await banIp(id, user.id, parsed.data.ipOrPlayer, parsed.data.reason, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.ip.ban',
+      target: id,
+      ip: request.ip,
+      data: { target: parsed.data.ipOrPlayer, reason: parsed.data.reason },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/unban-ip ─────────────────────────────────
+  app.post('/api/servers/:id/players/unban-ip', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(unbanIpSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await unbanIp(id, user.id, parsed.data.ip, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.ip.unban',
+      target: id,
+      ip: request.ip,
+      data: { ip: parsed.data.ip },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/op ───────────────────────────────────────
+  app.post('/api/servers/:id/players/op', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(setOpSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await setPlayerOp(id, user.id, parsed.data.player, parsed.data.op, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.player.op',
+      target: id,
+      ip: request.ip,
+      data: { player: parsed.data.player, op: parsed.data.op },
+    });
+
+    return reply.status(200).send(res);
   });
 }

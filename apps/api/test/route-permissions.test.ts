@@ -63,6 +63,13 @@ describe('Route permission enumeration', () => {
       { method: 'POST', path: '/api/servers/srv-test/mods/upload' },
       { method: 'POST', path: '/api/servers/srv-test/mods/toggle' },
       { method: 'DELETE', path: '/api/servers/srv-test/mods/test-mod.jar' },
+      { method: 'GET', path: '/api/servers/srv-test/players' },
+      { method: 'POST', path: '/api/servers/srv-test/players/kick' },
+      { method: 'POST', path: '/api/servers/srv-test/players/ban' },
+      { method: 'POST', path: '/api/servers/srv-test/players/unban' },
+      { method: 'POST', path: '/api/servers/srv-test/players/ban-ip' },
+      { method: 'POST', path: '/api/servers/srv-test/players/unban-ip' },
+      { method: 'POST', path: '/api/servers/srv-test/players/op' },
     ];
 
     for (const route of protectedRoutes) {

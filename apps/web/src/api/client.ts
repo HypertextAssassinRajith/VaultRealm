@@ -87,6 +87,40 @@ export interface ServerModsResponse {
   mods: InstalledMod[];
 }
 
+export interface BannedPlayer {
+  uuid?: string;
+  name: string;
+  created?: string;
+  source?: string;
+  expires?: string;
+  reason?: string;
+}
+
+export interface BannedIp {
+  ip: string;
+  created?: string;
+  source?: string;
+  expires?: string;
+  reason?: string;
+}
+
+export interface ServerOp {
+  uuid?: string;
+  name: string;
+  level?: number;
+}
+
+export interface ServerPlayersData {
+  online: {
+    count: number;
+    max: number;
+    players: string[];
+  };
+  bannedPlayers: BannedPlayer[];
+  bannedIps: BannedIp[];
+  ops: ServerOp[];
+}
+
 export interface CapacityStatus {
   host: {
     totalHostRamMb: number;
@@ -312,6 +346,39 @@ export const api = {
   deleteServerMod: (id: string, filename: string) =>
     request<{ message: string }>(`/api/servers/${id}/mods/${encodeURIComponent(filename)}`, {
       method: 'DELETE',
+    }),
+
+  // Players & Moderation
+  getServerPlayers: (id: string) => request<ServerPlayersData>(`/api/servers/${id}/players`),
+  kickPlayer: (id: string, player: string, reason?: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/kick`, {
+      method: 'POST',
+      body: JSON.stringify({ player, reason }),
+    }),
+  banPlayer: (id: string, player: string, reason?: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/ban`, {
+      method: 'POST',
+      body: JSON.stringify({ player, reason }),
+    }),
+  unbanPlayer: (id: string, player: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/unban`, {
+      method: 'POST',
+      body: JSON.stringify({ player }),
+    }),
+  banIp: (id: string, ipOrPlayer: string, reason?: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/ban-ip`, {
+      method: 'POST',
+      body: JSON.stringify({ ipOrPlayer, reason }),
+    }),
+  unbanIp: (id: string, ip: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/unban-ip`, {
+      method: 'POST',
+      body: JSON.stringify({ ip }),
+    }),
+  setPlayerOp: (id: string, player: string, op: boolean) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/op`, {
+      method: 'POST',
+      body: JSON.stringify({ player, op }),
     }),
 
   // Admin
