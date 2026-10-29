@@ -35,6 +35,8 @@ export interface ServerDetail {
   ports: ServerPort[];
   createdAt: string;
   lastStartedAt: string | null;
+  serverType?: string;
+  version?: string;
 }
 
 export interface TemplateEnvVarOption {

@@ -367,7 +367,17 @@ export function ServerMetrics({ server, stats, history, onClearHistory }: Server
               <span className="font-semibold text-foreground">{isRunning ? (stats?.pids ?? 0) : 0}</span>
               <span className="text-[10px] text-muted-foreground">active</span>
             </div>
-            <span className="text-[11px] font-mono text-primary font-medium">{server.templateName}</span>
+            <div className="flex items-center gap-1.5 text-[11px] font-mono">
+              <span className="text-primary font-medium">{server.templateName}</span>
+              {server.serverType && (
+                <span className="text-cyan-400 font-semibold">• {server.serverType}</span>
+              )}
+              {server.version && (
+                <span className="text-violet-300 font-medium">
+                  ({server.version === 'LATEST' ? 'LATEST' : `v${server.version}`})
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

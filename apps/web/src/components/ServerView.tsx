@@ -279,8 +279,18 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
                 {server.status}
               </span>
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="badge badge-primary text-[10px] py-0 px-2">{server.templateName}</span>
+              {server.serverType && (
+                <span className="badge badge-info text-[10px] py-0 px-2 font-mono font-bold">
+                  ⚡ {server.serverType}
+                </span>
+              )}
+              {server.version && (
+                <span className="badge badge-neutral text-[10px] py-0 px-2 font-mono font-bold text-violet-300 border-violet-500/30 bg-violet-950/30">
+                  🏷️ {server.version === 'LATEST' ? 'LATEST' : server.version.startsWith('v') ? server.version : `v${server.version}`}
+                </span>
+              )}
               <span className="text-xs text-muted-foreground">•</span>
               <span className="text-xs text-muted-foreground">Connect:</span>
               <button
@@ -597,13 +607,21 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         <div className="space-y-6">
           <div className="card p-6 border border-border/80 space-y-4">
             <h3 className="font-bold text-base text-foreground">Server Specifications</h3>
-            <div className="grid grid-cols-2 gap-4 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
               <div>
-                <span className="text-muted-foreground block">Server ID</span>
+                <span className="text-muted-foreground block mb-0.5">Engine / Type</span>
+                <span className="font-mono text-cyan-400 font-bold">{server.serverType || 'Standard'}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block mb-0.5">Game Version</span>
+                <span className="font-mono text-violet-300 font-bold">{server.version || 'Default'}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block mb-0.5">Server ID</span>
                 <span className="font-mono text-foreground">{server.id}</span>
               </div>
               <div>
-                <span className="text-muted-foreground block">Created At</span>
+                <span className="text-muted-foreground block mb-0.5">Created At</span>
                 <span className="font-mono text-foreground">
                   {new Date(server.createdAt).toLocaleString()}
                 </span>
