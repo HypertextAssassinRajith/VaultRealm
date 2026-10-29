@@ -132,6 +132,18 @@ const RAW_TEMPLATES: GameTemplate[] = [
       },
       { key: 'ENABLE_RCON', label: 'Enable RCON', default: 'true' },
       { key: 'RCON_PASSWORD', label: 'RCON password', default: '', secret: true },
+      {
+        key: 'MODRINTH_PROJECTS',
+        label: 'Auto-Install Modrinth Projects',
+        default: '',
+        description: 'Comma-separated Modrinth mod or plugin slugs (e.g. fabric-api, lithium)',
+      },
+      {
+        key: 'MODRINTH_MODPACK',
+        label: 'Auto-Install Modrinth Modpack',
+        default: '',
+        description: 'Modrinth modpack slug or download URL to install automatically on startup',
+      },
     ],
     dataDir: '/data',
     stopCommand: 'stop',

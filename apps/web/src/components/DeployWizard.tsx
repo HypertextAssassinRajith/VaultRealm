@@ -114,6 +114,21 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
     }
   };
 
+  const toggleModPreset = (presetSlug: string) => {
+    const raw = envValues['MODRINTH_PROJECTS'] || '';
+    const current = raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    let next: string[];
+    if (current.includes(presetSlug.toLowerCase())) {
+      next = current.filter((s) => s !== presetSlug.toLowerCase());
+    } else {
+      next = [...current, presetSlug.toLowerCase()];
+    }
+    setEnvValues((prev) => ({ ...prev, MODRINTH_PROJECTS: next.join(', ') }));
+  };
+
   const handleStartDeploy = async () => {
     if (!selectedTemplate) return;
     setLoading(true);
@@ -286,11 +301,28 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
                 Server Settings
               </span>
 
-              {/* Primary Settings (TYPE, VERSION, MOTD) */}
-              {selectedTemplate.env
-                .filter((e) => e.key !== 'MEMORY' && e.key !== 'EULA')
-                .slice(0, 3)
-                .map((env) => {
+              {(() => {
+                const isMinecraft = selectedTemplate.id === 'minecraft-java';
+                const currentType = (envValues['TYPE'] || 'PAPER').toUpperCase();
+                const isModLoader = ['FABRIC', 'FORGE', 'NEOFORGE', 'QUILT'].includes(currentType);
+                const isPluginLoader = ['PAPER', 'PURPUR', 'SPIGOT'].includes(currentType);
+                const currentProjectsList = (envValues['MODRINTH_PROJECTS'] || '')
+                  .split(',')
+                  .map((s) => s.trim().toLowerCase())
+                  .filter(Boolean);
+
+                const envList = selectedTemplate.env.filter(
+                  (e) =>
+                    e.key !== 'MEMORY' &&
+                    e.key !== 'EULA' &&
+                    e.key !== 'MODRINTH_PROJECTS' &&
+                    e.key !== 'MODRINTH_MODPACK'
+                );
+
+                return (
+                  <>
+                    {/* Primary Settings (TYPE, VERSION, MOTD) */}
+                    {envList.slice(0, 3).map((env) => {
                   // 1. VERSION dropdown (pulls from open-source web APIs)
                   if (env.key === 'VERSION') {
                     const currentVersion = envValues[env.key] ?? env.default ?? 'LATEST';
@@ -474,69 +506,184 @@ export function DeployWizard({ onClose, onSuccess }: DeployWizardProps) {
                   );
                 })}
 
-              {/* Advanced Settings Toggle */}
-              {selectedTemplate.env.filter((e) => e.key !== 'MEMORY' && e.key !== 'EULA').length > 3 && (
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvanced(!showAdvanced)}
-                    className="text-xs text-primary/90 hover:text-primary transition-colors flex items-center gap-1 font-mono"
-                  >
-                    <span>{showAdvanced ? '▾' : '▸'}</span>
-                    <span>
-                      {showAdvanced
-                        ? 'Hide Advanced Options'
-                        : '⚙️ Show Advanced Options (Difficulty, Mode, Players)'}
-                    </span>
-                  </button>
+                    {/* Advanced Settings Toggle */}
+                    {envList.length > 3 && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowAdvanced(!showAdvanced)}
+                          className="text-xs text-primary/90 hover:text-primary transition-colors flex items-center gap-1 font-mono"
+                        >
+                          <span>{showAdvanced ? '▾' : '▸'}</span>
+                          <span>
+                            {showAdvanced
+                              ? 'Hide Advanced Options'
+                              : '⚙️ Show Advanced Options (Difficulty, Mode, Players)'}
+                          </span>
+                        </button>
 
-                  {showAdvanced && (
-                    <div className="mt-3 space-y-3 pl-3 border-l-2 border-primary/20">
-                      {selectedTemplate.env
-                        .filter((e) => e.key !== 'MEMORY' && e.key !== 'EULA')
-                        .slice(3)
-                        .map((env) => {
-                          if (env.options && env.options.length > 0) {
-                            const val = envValues[env.key] ?? env.default ?? env.options[0]?.value;
-                            return (
-                              <div key={env.key}>
-                                <label className="block text-xs font-semibold text-foreground mb-1">
-                                  {env.label}{' '}
-                                  <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
-                                </label>
-                                <select
-                                  value={val}
-                                  onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
-                                  className="input w-full text-xs bg-card"
-                                >
-                                  {env.options.map((opt) => (
-                                    <option key={opt.value} value={opt.value}>
-                                      {opt.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            );
-                          }
-                          return (
-                            <div key={env.key}>
-                              <label className="block text-xs font-semibold text-foreground mb-1">
-                                {env.label}{' '}
-                                <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
-                              </label>
-                              <input
-                                type="text"
-                                value={envValues[env.key] ?? ''}
-                                onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
-                                className="input w-full text-xs"
-                              />
+                        {showAdvanced && (
+                          <div className="mt-3 space-y-3 pl-3 border-l-2 border-primary/20">
+                            {envList.slice(3).map((env) => {
+                              if (env.options && env.options.length > 0) {
+                                const val = envValues[env.key] ?? env.default ?? env.options[0]?.value;
+                                return (
+                                  <div key={env.key}>
+                                    <label className="block text-xs font-semibold text-foreground mb-1">
+                                      {env.label}{' '}
+                                      <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
+                                    </label>
+                                    <select
+                                      value={val}
+                                      onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
+                                      className="input w-full text-xs bg-card"
+                                    >
+                                      {env.options.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={env.key}>
+                                  <label className="block text-xs font-semibold text-foreground mb-1">
+                                    {env.label}{' '}
+                                    <span className="text-[10px] text-muted-foreground font-mono">({env.key})</span>
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={envValues[env.key] ?? ''}
+                                    onChange={(e) => setEnvValues({ ...envValues, [env.key]: e.target.value })}
+                                    className="input w-full text-xs"
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Open-Source Modding / Community Addons (Minecraft Java) */}
+                    {isMinecraft && (isModLoader || isPluginLoader) && (
+                      <div className="card p-4 border border-violet-500/30 bg-violet-950/20 rounded-lg space-y-3 mt-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">🧩</span>
+                            <div>
+                              <h4 className="text-xs font-bold text-foreground">
+                                {isModLoader
+                                  ? `Open-Source Modding (${currentType})`
+                                  : `Community Plugins (${currentType})`}
+                              </h4>
+                              <p className="text-[11px] text-muted-foreground">
+                                Auto-download open-source community {isModLoader ? 'mods' : 'plugins'} from Modrinth on startup
+                              </p>
                             </div>
-                          );
-                        })}
-                    </div>
-                  )}
-                </div>
-              )}
+                          </div>
+                          <span className="badge badge-info text-[10px] py-0 px-2 font-mono">
+                            Modrinth API
+                          </span>
+                        </div>
+
+                        {/* Preset Pills */}
+                        <div>
+                          <span className="text-[11px] font-semibold text-muted-foreground block mb-1.5">
+                            Popular {isModLoader ? 'Mods' : 'Plugins'} (Click to toggle):
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(isModLoader
+                              ? [
+                                  { id: 'fabric-api', name: 'Fabric API' },
+                                  { id: 'lithium', name: 'Lithium' },
+                                  { id: 'ferrite-core', name: 'FerriteCore' },
+                                  { id: 'simple-voice-chat', name: 'Voice Chat' },
+                                  { id: 'chunky', name: 'Chunky' },
+                                  { id: 'spark', name: 'Spark' },
+                                ]
+                              : [
+                                  { id: 'viaversion', name: 'ViaVersion' },
+                                  { id: 'geysermc', name: 'Geyser' },
+                                  { id: 'floodgate', name: 'Floodgate' },
+                                  { id: 'chunky', name: 'Chunky' },
+                                  { id: 'luckperms', name: 'LuckPerms' },
+                                  { id: 'spark', name: 'Spark' },
+                                ]
+                            ).map((preset) => {
+                              const isSelected = currentProjectsList.includes(preset.id);
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => toggleModPreset(preset.id)}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-mono border transition-all cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-primary text-primary-foreground border-primary font-bold shadow-sm'
+                                      : 'bg-card border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40'
+                                  }`}
+                                >
+                                  {isSelected ? '✓ ' : '+ '}
+                                  {preset.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* MODRINTH_PROJECTS */}
+                        <div>
+                          <label className="block text-xs font-semibold text-foreground mb-1">
+                            Modrinth Slugs / IDs{' '}
+                            <span className="text-[10px] text-muted-foreground font-mono">(MODRINTH_PROJECTS)</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder={
+                              isModLoader
+                                ? 'e.g. fabric-api, lithium, ferrite-core'
+                                : 'e.g. viaversion, geysermc, chunky'
+                            }
+                            value={envValues['MODRINTH_PROJECTS'] ?? ''}
+                            onChange={(e) =>
+                              setEnvValues({ ...envValues, MODRINTH_PROJECTS: e.target.value })
+                            }
+                            className="input w-full text-xs font-mono"
+                          />
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Placed into{' '}
+                            <code className="text-primary font-mono">
+                              {isPluginLoader ? '/data/plugins' : '/data/mods'}
+                            </code>{' '}
+                            during container bootstrap
+                          </p>
+                        </div>
+
+                        {/* MODRINTH_MODPACK (Mod loaders only) */}
+                        {isModLoader && (
+                          <div>
+                            <label className="block text-xs font-semibold text-foreground mb-1">
+                              Or Modpack Slug / URL{' '}
+                              <span className="text-[10px] text-muted-foreground font-mono">(MODRINTH_MODPACK)</span>
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. fabulously-optimized or https://cdn.modrinth.com/...mrpack"
+                              value={envValues['MODRINTH_MODPACK'] ?? ''}
+                              onChange={(e) =>
+                                setEnvValues({ ...envValues, MODRINTH_MODPACK: e.target.value })
+                              }
+                              className="input w-full text-xs font-mono"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             <div className="pt-4 flex gap-3">

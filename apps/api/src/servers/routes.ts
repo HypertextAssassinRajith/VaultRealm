@@ -13,6 +13,8 @@ import { assertCan } from '../auth/rbac.js';
 import { validate } from '../validation.js';
 import { getAllTemplates } from './templates.js';
 import { getTemplateVersions } from './versions.js';
+import { listInstalledMods, installModFromUrl, toggleMod, deleteMod, getAddonsFolder } from './mods.js';
+import { writeAudit } from '../audit/log.js';
 import {
   startServer,
   stopServer,
@@ -63,6 +65,18 @@ const applyFixSchema = z.object({
     ]),
     payload: z.record(z.unknown()).optional(),
   }),
+});
+
+const installModSchema = z.object({
+  downloadUrl: z.string().url('Must be a valid URL'),
+  filename: z.string().min(1).max(255),
+  projectId: z.string().optional(),
+  title: z.string().optional(),
+});
+
+const toggleModSchema = z.object({
+  filename: z.string().min(1).max(255),
+  enable: z.boolean(),
 });
 
 // ── Route registration ───────────────────────────────────────────────────────
@@ -362,5 +376,88 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
       .header('Content-Type', 'application/zip')
       .header('Content-Disposition', `attachment; filename="vaultrealm-debug-${id}.zip"`)
       .send(zipBuffer);
+  });
+
+  // ── GET /api/servers/:id/mods ──────────────────────────────────────────────
+  app.get('/api/servers/:id/mods', { preHandler: [requireAuth] }, async (request) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:view', id);
+
+    const detail = await getServerDetail(id);
+    const folder = getAddonsFolder(detail.templateId);
+    const mods = await listInstalledMods(id, detail.templateId);
+    return { folder, mods };
+  });
+
+  // ── POST /api/servers/:id/mods/install ─────────────────────────────────────
+  app.post('/api/servers/:id/mods/install', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:files', id);
+
+    const parsed = validate(installModSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const detail = await getServerDetail(id);
+    const result = await installModFromUrl(
+      id,
+      detail.templateId,
+      parsed.data.downloadUrl,
+      parsed.data.filename,
+    );
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.mod.install',
+      target: id,
+      ip: request.ip,
+      data: { filename: result.filename, projectId: parsed.data.projectId },
+    });
+
+    return reply.status(201).send(result);
+  });
+
+  // ── POST /api/servers/:id/mods/toggle ──────────────────────────────────────
+  app.post('/api/servers/:id/mods/toggle', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:files', id);
+
+    const parsed = validate(toggleModSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const detail = await getServerDetail(id);
+    const result = await toggleMod(id, detail.templateId, parsed.data.filename, parsed.data.enable);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.mod.toggle',
+      target: id,
+      ip: request.ip,
+      data: { filename: parsed.data.filename, enable: parsed.data.enable },
+    });
+
+    return reply.status(200).send(result);
+  });
+
+  // ── DELETE /api/servers/:id/mods/:filename ─────────────────────────────────
+  app.delete('/api/servers/:id/mods/:filename', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id, filename } = request.params as { id: string; filename: string };
+    await assertCan(user, 'server:files', id);
+
+    const detail = await getServerDetail(id);
+    await deleteMod(id, detail.templateId, filename);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.mod.delete',
+      target: id,
+      ip: request.ip,
+      data: { filename },
+    });
+
+    return reply.status(200).send({ message: 'Mod file deleted.' });
   });
 }

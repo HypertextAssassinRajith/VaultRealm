@@ -73,6 +73,18 @@ export interface TemplateVersionsResponse {
   source: string;
 }
 
+export interface InstalledMod {
+  filename: string;
+  sizeBytes: number;
+  enabled: boolean;
+  modifiedAt: string;
+}
+
+export interface ServerModsResponse {
+  folder: string;
+  mods: InstalledMod[];
+}
+
 export interface CapacityStatus {
   host: {
     totalHostRamMb: number;
@@ -271,6 +283,26 @@ export const api = {
       body: JSON.stringify({ action }),
     }),
   getDebugBundleUrl: (id: string) => `/api/servers/${id}/debug-bundle`,
+
+  // Mods & Addons
+  listServerMods: (id: string) => request<ServerModsResponse>(`/api/servers/${id}/mods`),
+  installServerMod: (
+    id: string,
+    data: { downloadUrl: string; filename: string; projectId?: string; title?: string },
+  ) =>
+    request<{ filename: string; sizeBytes: number }>(`/api/servers/${id}/mods/install`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  toggleServerMod: (id: string, filename: string, enable: boolean) =>
+    request<{ newFilename: string; enabled: boolean }>(`/api/servers/${id}/mods/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ filename, enable }),
+    }),
+  deleteServerMod: (id: string, filename: string) =>
+    request<{ message: string }>(`/api/servers/${id}/mods/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    }),
 
   // Admin
   listInvites: () => request<Array<{ id: string; code: string; uses: number; maxUses: number; createdAt: string }>>('/api/admin/invites'),
