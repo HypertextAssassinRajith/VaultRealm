@@ -121,6 +121,30 @@ export interface ServerPlayersData {
   ops: ServerOp[];
 }
 
+export type PropertyCategory = 'gameplay' | 'security' | 'world' | 'performance' | 'network' | 'custom';
+export type PropertyType = 'boolean' | 'number' | 'string' | 'select';
+
+export interface ServerPropertyItem {
+  key: string;
+  value: string;
+  label: string;
+  description: string;
+  category: PropertyCategory;
+  type: PropertyType;
+  options?: Array<{ label: string; value: string }>;
+  defaultValue: string;
+  isSecret?: boolean;
+  isModified: boolean;
+}
+
+export interface ServerPropertiesResponse {
+  templateId: string;
+  isMinecraft: boolean;
+  serverStatus: string;
+  properties: ServerPropertyItem[];
+  rawContent: string;
+}
+
 export interface CapacityStatus {
   host: {
     totalHostRamMb: number;
@@ -380,6 +404,33 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ player, op }),
     }),
+
+  // Server Properties & Minecraft Configuration
+  getServerProperties: (id: string) => request<ServerPropertiesResponse>(`/api/servers/${id}/properties`),
+  updateServerProperty: (id: string, key: string, value: string) =>
+    request<{ success: boolean; key: string; value: string; requiresRestart: boolean }>(
+      `/api/servers/${id}/properties/property`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ key, value }),
+      },
+    ),
+  updateServerProperties: (id: string, data: { properties?: Record<string, string>; rawContent?: string }) =>
+    request<{ success: boolean; count: number; requiresRestart: boolean }>(`/api/servers/${id}/properties`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  setServerSpawnPoint: (
+    id: string,
+    data: { x: number; y: number; z: number; angle?: number; spawnProtection?: number },
+  ) =>
+    request<{ success: boolean; message: string; commandExecuted: boolean }>(
+      `/api/servers/${id}/properties/spawn-point`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    ),
 
   // Admin
   listInvites: () => request<Array<{ id: string; code: string; uses: number; maxUses: number; createdAt: string }>>('/api/admin/invites'),

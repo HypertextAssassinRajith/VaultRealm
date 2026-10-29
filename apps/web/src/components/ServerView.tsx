@@ -13,6 +13,7 @@ import { CompanionTab } from './CompanionTab';
 import { ServerMetrics, type MetricSnapshot } from './ServerMetrics';
 import { ServerModsTab } from './ServerModsTab';
 import { ServerPlayersTab } from './ServerPlayersTab';
+import { ServerPropertiesTab } from './ServerPropertiesTab';
 
 interface ServerViewProps {
   serverId: string;
@@ -20,14 +21,14 @@ interface ServerViewProps {
   onDelete: () => void;
 }
 
-type ServerTab = 'overview' | 'console' | 'players' | 'mods' | 'debug' | 'companion' | 'settings';
+type ServerTab = 'overview' | 'console' | 'players' | 'mods' | 'properties' | 'debug' | 'companion' | 'settings';
 
 export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const [server, setServer] = useState<ServerDetail | null>(null);
   const [activeTab, setActiveTab] = useState<ServerTab>(() => {
     try {
       const saved = sessionStorage.getItem(`vr_tab_${serverId}`);
-      if (saved && ['overview', 'console', 'players', 'mods', 'debug', 'companion', 'settings'].includes(saved)) {
+      if (saved && ['overview', 'console', 'players', 'mods', 'properties', 'debug', 'companion', 'settings'].includes(saved)) {
         return saved as ServerTab;
       }
     } catch {
@@ -446,13 +447,14 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
           { id: 'console', label: 'Live Console', icon: '💻' },
           { id: 'players', label: 'Players & Bans', icon: '👥' },
           { id: 'mods', label: 'Mods & Addons', icon: '🧩' },
+          { id: 'properties', label: 'Properties', icon: '⚙️' },
           { id: 'debug', label: 'Auto-Diagnosis', icon: '🔍' },
           { id: 'companion', label: 'AI Companion', icon: '🤖' },
-          { id: 'settings', label: 'Settings', icon: '⚙️' },
+          { id: 'settings', label: 'Settings', icon: '🔧' },
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as 'overview' | 'console' | 'players' | 'mods' | 'debug' | 'companion' | 'settings')}
+            onClick={() => setActiveTab(tab.id as ServerTab)}
             className={`py-2 px-4 text-xs font-semibold rounded-t-lg transition-all cursor-pointer flex items-center gap-2 border-b-2 -mb-px ${
               activeTab === tab.id
                 ? 'border-primary text-primary bg-primary/10'
@@ -620,6 +622,14 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         />
       )}
 
+      {/* Tab: Properties */}
+      {activeTab === 'properties' && (
+        <ServerPropertiesTab
+          server={server}
+          onRestartServer={() => handlePowerAction('restart')}
+        />
+      )}
+
       {/* Tab: Debug */}
       {activeTab === 'debug' && (
         <div className="space-y-6">
@@ -741,6 +751,21 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
       {/* Tab: Settings */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
+          <div className="card p-6 border border-border/80 flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-base text-foreground">Minecraft Server Properties</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Customize online-mode, world spawn point, PvP, difficulty, view distance, and gameplay rules one by one.
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveTab('properties')}
+              className="btn btn-secondary text-xs py-2 px-4 font-semibold shrink-0"
+            >
+              Open Server Properties →
+            </button>
+          </div>
+
           <div className="card p-6 border border-border/80 space-y-4">
             <h3 className="font-bold text-base text-foreground">Server Specifications</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
