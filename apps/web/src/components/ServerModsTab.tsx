@@ -410,7 +410,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header Strip with Controls */}
-      <div className="card p-5 border border-border/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="card p-3.5 sm:p-5 border border-border/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-bold text-base text-foreground flex items-center gap-2">
@@ -437,12 +437,12 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           {/* Subtabs */}
           <div className="flex bg-card-subtle p-1 rounded-lg border border-border">
             <button
               onClick={() => setSubtab('browse')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`flex-1 sm:flex-none px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 subtab === 'browse'
                   ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
@@ -455,7 +455,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
                 setSubtab('installed');
                 loadInstalled();
               }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${
+              className={`flex-1 sm:flex-none px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
                 subtab === 'installed'
                   ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
@@ -471,7 +471,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
           {onRestartServer && (
             <button
               onClick={onRestartServer}
-              className="btn btn-secondary text-xs py-1.5 px-3 flex items-center gap-1 text-amber-400 hover:text-amber-300 border-amber-500/30"
+              className="btn btn-secondary text-xs py-1.5 px-3 flex items-center justify-center gap-1 text-amber-400 hover:text-amber-300 border-amber-500/30"
               title="Restart server to load new mods"
             >
               🔄 Restart Server
