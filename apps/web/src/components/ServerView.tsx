@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   api,
   type ServerDetail,
+  type ContainerStats,
   type DiagnosisFinding,
   type TimelineEvent,
   type ApiError,
@@ -9,6 +10,9 @@ import {
 import { useToast } from './Toast';
 import { useConfirm } from './ConfirmModal';
 import { CompanionTab } from './CompanionTab';
+import { ServerMetrics, type MetricSnapshot } from './ServerMetrics';
+import { ServerModsTab } from './ServerModsTab';
+import { ServerPlayersTab } from './ServerPlayersTab';
 
 interface ServerViewProps {
   serverId: string;
@@ -16,18 +20,44 @@ interface ServerViewProps {
   onDelete: () => void;
 }
 
+type ServerTab = 'overview' | 'console' | 'players' | 'mods' | 'debug' | 'companion' | 'settings';
+
 export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const [server, setServer] = useState<ServerDetail | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'console' | 'debug' | 'companion' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<ServerTab>(() => {
+    try {
+      const saved = sessionStorage.getItem(`vr_tab_${serverId}`);
+      if (saved && ['overview', 'console', 'players', 'mods', 'debug', 'companion', 'settings'].includes(saved)) {
+        return saved as ServerTab;
+      }
+    } catch {
+      // ignore
+    }
+    return 'overview';
+  });
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [commandInput, setCommandInput] = useState('');
   const [findings, setFindings] = useState<DiagnosisFinding[]>([]);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [stats, setStats] = useState<ContainerStats | null>(null);
+  const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
+  const lastStatsRef = useRef<{ time: number; rx: number; tx: number } | null>(null);
 
+  const consoleContainerRef = useRef<HTMLDivElement>(null);
   const consoleBottomRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const isInitialLoadRef = useRef(true);
   const { addToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`vr_tab_${serverId}`, activeTab);
+    } catch {
+      // ignore
+    }
+  }, [activeTab, serverId]);
 
   const fetchServer = async () => {
     try {
@@ -66,6 +96,13 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
     if (activeTab === 'debug') {
       fetchDiagnosis();
       fetchEvents();
+    } else if (activeTab === 'overview') {
+      api
+        .getServerStats(serverId)
+        .then((s) => {
+          setStats(s);
+        })
+        .catch(() => {});
     }
   }, [activeTab, serverId]);
 
@@ -87,6 +124,46 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
             setConsoleLogs((prev) => [...prev.slice(-400), String(msg.data)]);
           } else if (msg.type === 'status') {
             setServer((prev) => (prev ? { ...prev, status: msg.data } : null));
+          } else if (msg.type === 'stats') {
+            const rawStats = msg.data as ContainerStats;
+            const now = Date.now();
+            let rxSpeedBps = 0;
+            let txSpeedBps = 0;
+
+            if (lastStatsRef.current) {
+              const dt = Math.max(0.5, (now - lastStatsRef.current.time) / 1000);
+              const drx = Math.max(0, rawStats.networkRxBytes - lastStatsRef.current.rx);
+              const dtx = Math.max(0, rawStats.networkTxBytes - lastStatsRef.current.tx);
+              rxSpeedBps = drx / dt;
+              txSpeedBps = dtx / dt;
+            }
+
+            lastStatsRef.current = {
+              time: now,
+              rx: rawStats.networkRxBytes,
+              tx: rawStats.networkTxBytes,
+            };
+
+            setStats(rawStats);
+
+            const snapshot: MetricSnapshot = {
+              timestamp: new Date().toISOString(),
+              timeLabel: new Date().toLocaleTimeString(),
+              cpuPercent: rawStats.cpuPercent ?? 0,
+              memoryUsageMb: rawStats.memoryUsageMb ?? 0,
+              memoryLimitMb: rawStats.memoryLimitMb ?? 0,
+              memoryPercent: rawStats.memoryPercent ?? 0,
+              diskUsedMb: rawStats.diskUsedMb ?? 0,
+              diskLimitMb: rawStats.diskLimitMb ?? 10240,
+              diskPercent: rawStats.diskPercent ?? 0,
+              networkRxBytes: rawStats.networkRxBytes ?? 0,
+              networkTxBytes: rawStats.networkTxBytes ?? 0,
+              rxSpeedBps,
+              txSpeedBps,
+              pids: rawStats.pids ?? 0,
+            };
+
+            setMetricsHistory((prev) => [...prev.slice(-59), snapshot]);
           } else if (msg.type === 'command_ack') {
             const out = msg.data.output;
             setConsoleLogs((prev) => [...prev, `> ${out}`]);
@@ -104,9 +181,62 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
     };
   }, [serverId]);
 
+  const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
+    const container = consoleContainerRef.current;
+    if (!container) return;
+    if (behavior === 'auto') {
+      container.scrollTop = container.scrollHeight;
+    } else {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  };
+
+  const handleConsoleScroll = () => {
+    const container = consoleContainerRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight <= 60;
+    setAutoScroll(isAtBottom);
+  };
+
+  // Scroll to bottom when switching to console tab or when mounted
   useEffect(() => {
-    consoleBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [consoleLogs]);
+    if (activeTab === 'console') {
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
+      const timer = setTimeout(() => {
+        scrollToBottom('auto');
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab]);
+
+  // Scroll to new line when consoleLogs update
+  useEffect(() => {
+    if (activeTab !== 'console') return;
+    if (!consoleContainerRef.current) return;
+
+    if (isInitialLoadRef.current) {
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
+      if (consoleLogs.length > 0) {
+        const timer = setTimeout(() => {
+          isInitialLoadRef.current = false;
+          scrollToBottom('auto');
+        }, 120);
+        return () => clearTimeout(timer);
+      }
+    } else if (autoScroll) {
+      requestAnimationFrame(() => {
+        scrollToBottom('smooth');
+      });
+    }
+  }, [consoleLogs, activeTab, autoScroll]);
 
   const handlePowerAction = async (action: 'start' | 'stop' | 'restart' | 'kill') => {
     setLoadingAction(action);
@@ -133,10 +263,17 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
     const cmd = commandInput;
     setCommandInput('');
     setConsoleLogs((prev) => [...prev, `$ ${cmd}`]);
+    setAutoScroll(true);
+    requestAnimationFrame(() => {
+      scrollToBottom('auto');
+    });
 
     try {
       const res = await api.sendCommand(serverId, cmd);
       setConsoleLogs((prev) => [...prev, res.output]);
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
     } catch (err) {
       const error = err as ApiError;
       addToast({ type: 'error', title: 'Command failed', message: error.message });
@@ -227,8 +364,18 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
                 {server.status}
               </span>
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="badge badge-primary text-[10px] py-0 px-2">{server.templateName}</span>
+              {server.serverType && (
+                <span className="badge badge-info text-[10px] py-0 px-2 font-mono font-bold">
+                  ⚡ {server.serverType}
+                </span>
+              )}
+              {server.version && (
+                <span className="badge badge-neutral text-[10px] py-0 px-2 font-mono font-bold text-violet-300 border-violet-500/30 bg-violet-950/30">
+                  🏷️ {server.version === 'LATEST' ? 'LATEST' : server.version.startsWith('v') ? server.version : `v${server.version}`}
+                </span>
+              )}
               <span className="text-xs text-muted-foreground">•</span>
               <span className="text-xs text-muted-foreground">Connect:</span>
               <button
@@ -297,13 +444,15 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         {[
           { id: 'overview', label: 'Overview', icon: '📊' },
           { id: 'console', label: 'Live Console', icon: '💻' },
+          { id: 'players', label: 'Players & Bans', icon: '👥' },
+          { id: 'mods', label: 'Mods & Addons', icon: '🧩' },
           { id: 'debug', label: 'Auto-Diagnosis', icon: '🔍' },
           { id: 'companion', label: 'AI Companion', icon: '🤖' },
           { id: 'settings', label: 'Settings', icon: '⚙️' },
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as 'overview' | 'console' | 'debug' | 'companion' | 'settings')}
+            onClick={() => setActiveTab(tab.id as 'overview' | 'console' | 'players' | 'mods' | 'debug' | 'companion' | 'settings')}
             className={`py-2 px-4 text-xs font-semibold rounded-t-lg transition-all cursor-pointer flex items-center gap-2 border-b-2 -mb-px ${
               activeTab === tab.id
                 ? 'border-primary text-primary bg-primary/10'
@@ -321,53 +470,19 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         ))}
       </div>
 
-      {/* Tab: Overview */}
+      {/* Tab: Overview / Live Metrics */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="card p-5 border border-border/80">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-              Memory Allocation
-            </span>
-            <div className="text-2xl font-bold font-mono text-foreground">
-              {server.ramMb} <span className="text-sm font-normal text-muted-foreground">MB</span>
-            </div>
-            <div className="w-full bg-muted rounded-full h-1.5 mt-3 overflow-hidden">
-              <div
-                className="bg-primary h-full rounded-full"
-                style={{ width: `${Math.min(100, (server.ramMb / 8192) * 100)}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="card p-5 border border-border/80">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-              CPU Limit
-            </span>
-            <div className="text-2xl font-bold font-mono text-foreground">
-              {server.cpuLimit} <span className="text-sm font-normal text-muted-foreground">Cores</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">Shared container allocation</p>
-          </div>
-
-          <div className="card p-5 border border-border/80">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-              Port Bindings
-            </span>
-            <div className="space-y-1 mt-1">
-              {server.ports.map((p) => (
-                <div key={p.name} className="flex justify-between text-xs font-mono">
-                  <span className="text-muted-foreground">{p.name}:</span>
-                  <span className="text-primary">{p.hostPort} ➔ {p.containerPort}/{p.protocol}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <ServerMetrics
+          server={server}
+          stats={stats}
+          history={metricsHistory}
+          onClearHistory={() => setMetricsHistory([])}
+        />
       )}
 
       {/* Tab: Console */}
       {activeTab === 'console' && (
-        <div className="card overflow-hidden flex flex-col h-[540px] bg-black/95 shadow-xl">
+        <div className="card overflow-hidden flex flex-col h-[540px] bg-black/95 shadow-xl relative">
           <div className="px-4 py-3 bg-card-subtle border-b border-border flex items-center justify-between text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <span className="flex gap-1.5">
@@ -377,14 +492,37 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
               </span>
               <span className="font-mono text-[11px] text-muted-foreground ml-2">Live Terminal • {server.name}</span>
             </div>
-            <button
-              onClick={() => setConsoleLogs([])}
-              className="btn btn-ghost btn-sm text-[11px] py-1 px-2"
-            >
-              Clear Buffer
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !autoScroll;
+                  setAutoScroll(next);
+                  if (next) scrollToBottom('auto');
+                }}
+                className={`btn btn-sm text-[11px] py-1 px-2.5 transition-colors flex items-center gap-1.5 ${
+                  autoScroll
+                    ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'
+                    : 'text-amber-400 bg-amber-950/40 border border-amber-500/30'
+                }`}
+                title={autoScroll ? 'Auto-scroll is active (click to pause)' : 'Auto-scroll paused (click to resume)'}
+              >
+                <span className={`inline-block w-1.5 h-1.5 rounded-full ${autoScroll ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span>{autoScroll ? 'Auto-scroll: ON' : 'Auto-scroll: PAUSED'}</span>
+              </button>
+              <button
+                onClick={() => setConsoleLogs([])}
+                className="btn btn-ghost btn-sm text-[11px] py-1 px-2"
+              >
+                Clear Buffer
+              </button>
+            </div>
           </div>
-          <div className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1">
+          <div
+            ref={consoleContainerRef}
+            onScroll={handleConsoleScroll}
+            className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 relative"
+          >
             {consoleLogs.length === 0 ? (
               server.status === 'pulling' ? (
                 <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground my-auto h-full">
@@ -440,6 +578,19 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
               ))
             )}
             <div ref={consoleBottomRef} />
+            {!autoScroll && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAutoScroll(true);
+                  scrollToBottom('auto');
+                }}
+                className="sticky bottom-2 float-right mr-2 bg-primary text-primary-foreground text-xs py-1 px-3 rounded-full shadow-lg flex items-center gap-1.5 hover:opacity-90 transition-all font-sans font-semibold border border-primary-foreground/20 animate-bounce cursor-pointer z-10"
+              >
+                <span>↓</span>
+                <span>Jump to bottom</span>
+              </button>
+            )}
           </div>
           <form onSubmit={handleSendCommand} className="p-3 border-t border-border bg-card-subtle flex gap-2">
             <input
@@ -454,6 +605,19 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
             </button>
           </form>
         </div>
+      )}
+
+      {/* Tab: Players & Moderation */}
+      {activeTab === 'players' && (
+        <ServerPlayersTab server={server} />
+      )}
+
+      {/* Tab: Mods & Addons */}
+      {activeTab === 'mods' && (
+        <ServerModsTab
+          server={server}
+          onRestartServer={() => handlePowerAction('restart')}
+        />
       )}
 
       {/* Tab: Debug */}
@@ -579,13 +743,21 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
         <div className="space-y-6">
           <div className="card p-6 border border-border/80 space-y-4">
             <h3 className="font-bold text-base text-foreground">Server Specifications</h3>
-            <div className="grid grid-cols-2 gap-4 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
               <div>
-                <span className="text-muted-foreground block">Server ID</span>
+                <span className="text-muted-foreground block mb-0.5">Engine / Type</span>
+                <span className="font-mono text-cyan-400 font-bold">{server.serverType || 'Standard'}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block mb-0.5">Game Version</span>
+                <span className="font-mono text-violet-300 font-bold">{server.version || 'Default'}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block mb-0.5">Server ID</span>
                 <span className="font-mono text-foreground">{server.id}</span>
               </div>
               <div>
-                <span className="text-muted-foreground block">Created At</span>
+                <span className="text-muted-foreground block mb-0.5">Created At</span>
                 <span className="font-mono text-foreground">
                   {new Date(server.createdAt).toLocaleString()}
                 </span>

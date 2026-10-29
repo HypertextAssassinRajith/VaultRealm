@@ -415,6 +415,34 @@ export class RealDockerDriver implements DockerDriver {
     await container.update(updateConfig);
   }
 
+  async exec(id: string, cmd: string[]): Promise<{ exitCode: number; output: string }> {
+    const container = this.docker.getContainer(id);
+    const execInstance = await container.exec({
+      Cmd: cmd,
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+
+    const stream = await execInstance.start({ Tty: false });
+    const chunks: Buffer[] = [];
+
+    await new Promise<void>((resolve, reject) => {
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('end', () => resolve());
+      stream.on('error', reject);
+    });
+
+    const inspect = await execInstance.inspect();
+    const rawBuffer = Buffer.concat(chunks);
+    const lines = this.parseLogBuffer(rawBuffer);
+    const output = lines.join('\n').trim() || rawBuffer.toString('utf-8').trim();
+
+    return {
+      exitCode: inspect.ExitCode ?? 0,
+      output,
+    };
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────────
 
   private parseLogBuffer(buffer: Buffer): string[] {

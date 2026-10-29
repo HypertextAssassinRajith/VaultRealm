@@ -183,13 +183,31 @@ export function Dashboard({
                   className="card card-interactive p-5 flex flex-col justify-between group"
                 >
                   <div>
-                    {/* Header: Template & Status */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="badge badge-primary text-[11px]">
-                        {server.templateName}
-                      </span>
+                    {/* Header: Template, Type, Version & Status */}
+                    <div className="flex items-start justify-between mb-3 gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="badge badge-primary text-[10px]">
+                          {server.templateName}
+                        </span>
+                        {server.serverType && (
+                          <span
+                            className="badge badge-info text-[10px] font-mono tracking-wider font-bold"
+                            title={`Server Engine: ${server.serverType}`}
+                          >
+                            ⚡ {server.serverType}
+                          </span>
+                        )}
+                        {server.version && (
+                          <span
+                            className="badge badge-neutral text-[10px] font-mono font-bold text-violet-300 border-violet-500/30 bg-violet-950/30"
+                            title={`Minecraft / Game Version: ${server.version}`}
+                          >
+                            🏷️ {server.version === 'LATEST' ? 'LATEST' : server.version.startsWith('v') ? server.version : `v${server.version}`}
+                          </span>
+                        )}
+                      </div>
                       <span
-                        className={`badge ${
+                        className={`badge shrink-0 ${
                           server.status === 'running'
                             ? 'badge-success'
                             : server.status === 'starting' || server.status === 'pulling'
@@ -216,6 +234,24 @@ export function Dashboard({
                     <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-1">
                       {server.name}
                     </h3>
+
+                    {/* Quick Specs Subtitle if Type or Version exists */}
+                    {(server.serverType || server.version) && (
+                      <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground font-mono">
+                        {server.serverType && (
+                          <span className="text-cyan-400 font-semibold inline-flex items-center gap-1">
+                            <span className="text-[9px]">●</span>
+                            <span>{server.serverType}</span>
+                          </span>
+                        )}
+                        {server.serverType && server.version && <span className="opacity-40">•</span>}
+                        {server.version && (
+                          <span className="text-violet-300 font-semibold">
+                            {server.version === 'LATEST' ? 'Latest Release' : `v${server.version}`}
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Connection Address */}
                     <div className="mt-2 flex items-center gap-1.5 bg-card-subtle px-2.5 py-1.5 rounded-md border border-border/60">

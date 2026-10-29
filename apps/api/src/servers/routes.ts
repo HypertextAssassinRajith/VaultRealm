@@ -12,6 +12,26 @@ import { requireAuth, getRequestUser } from '../auth/middleware.js';
 import { assertCan } from '../auth/rbac.js';
 import { validate } from '../validation.js';
 import { getAllTemplates } from './templates.js';
+import { getTemplateVersions } from './versions.js';
+import {
+  listInstalledMods,
+  installModFromUrl,
+  toggleMod,
+  deleteMod,
+  getAddonsFolder,
+  detectServerGameVersion,
+  saveUploadedMod,
+} from './mods.js';
+import {
+  getServerPlayersData,
+  kickPlayer,
+  banPlayer,
+  unbanPlayer,
+  banIp,
+  unbanIp,
+  setPlayerOp,
+} from './players.js';
+import { writeAudit } from '../audit/log.js';
 import {
   startServer,
   stopServer,
@@ -29,6 +49,7 @@ import { events } from '../db/schema.js';
 import { diagnoseServer, applyDiagnosisFix, type FixAction } from '../diagnosis/index.js';
 import { generateDebugBundle } from './debug-bundle.js';
 import { executeServerCommand } from './console.js';
+import { getServerDiskUsage } from './volume.js';
 
 // ── Validation schemas ───────────────────────────────────────────────────────
 
@@ -63,6 +84,51 @@ const applyFixSchema = z.object({
   }),
 });
 
+const installModSchema = z.object({
+  downloadUrl: z.string().url('Must be a valid URL'),
+  filename: z.string().min(1).max(255),
+  projectId: z.string().optional(),
+  title: z.string().optional(),
+});
+
+const toggleModSchema = z.object({
+  filename: z.string().min(1).max(255),
+  enable: z.boolean(),
+});
+
+const uploadModSchema = z.object({
+  filename: z.string().min(1).max(255),
+  contentBase64: z.string().min(1, 'File content cannot be empty'),
+});
+
+const kickPlayerSchema = z.object({
+  player: z.string().min(1, 'Player name is required').max(64),
+  reason: z.string().max(255).optional(),
+});
+
+const banPlayerSchema = z.object({
+  player: z.string().min(1, 'Player name is required').max(64),
+  reason: z.string().max(255).optional(),
+});
+
+const unbanPlayerSchema = z.object({
+  player: z.string().min(1, 'Player name is required').max(64),
+});
+
+const banIpSchema = z.object({
+  ipOrPlayer: z.string().min(1, 'IP address or player name is required').max(64),
+  reason: z.string().max(255).optional(),
+});
+
+const unbanIpSchema = z.object({
+  ip: z.string().min(1, 'IP address is required').max(64),
+});
+
+const setOpSchema = z.object({
+  player: z.string().min(1, 'Player name is required').max(64),
+  op: z.boolean(),
+});
+
 // ── Route registration ───────────────────────────────────────────────────────
 
 export async function serverRoutes(app: FastifyInstance): Promise<void> {
@@ -83,8 +149,28 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
         label: e.label,
         default: e.default,
         required: e.required,
+        description: e.description,
+        options: e.options,
       })),
     }));
+  });
+
+  // ── GET /api/templates/:templateId/versions ────────────────────────────────
+  app.get('/api/templates/:templateId/versions', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    await assertCan(user, 'server:create');
+
+    const params = request.params as { templateId: string };
+    const templateId = params.templateId;
+    if (!templateId) {
+      return reply.status(400).send({
+        code: 'INVALID_TEMPLATE',
+        message: 'Template ID is required.',
+      });
+    }
+
+    const versions = await getTemplateVersions(templateId);
+    return versions;
   });
 
   // ── GET /api/system/capacity ───────────────────────────────────────────────
@@ -236,8 +322,19 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
     await assertCan(user, 'server:view', id);
 
     const detail = await getServerDetail(id);
+    const disk = getServerDiskUsage(id, detail.diskLimitMb);
+
     if (detail.status !== 'running') {
-      return { cpuPercent: 0, memoryUsageMb: 0, memoryLimitMb: detail.ramMb, memoryPercent: 0, pids: 0 };
+      return {
+        cpuPercent: 0,
+        memoryUsageMb: 0,
+        memoryLimitMb: detail.ramMb,
+        memoryPercent: 0,
+        networkRxBytes: 0,
+        networkTxBytes: 0,
+        pids: 0,
+        ...disk,
+      };
     }
 
     const db = getDatabase();
@@ -245,14 +342,36 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
     const server = db.select({ containerId: servers.containerId }).from(servers).where(eq(servers.id, id)).all()[0];
 
     if (!server?.containerId) {
-      return { cpuPercent: 0, memoryUsageMb: 0, memoryLimitMb: detail.ramMb, memoryPercent: 0, pids: 0 };
+      return {
+        cpuPercent: 0,
+        memoryUsageMb: 0,
+        memoryLimitMb: detail.ramMb,
+        memoryPercent: 0,
+        networkRxBytes: 0,
+        networkTxBytes: 0,
+        pids: 0,
+        ...disk,
+      };
     }
 
     try {
       const driver = getDockerDriver();
-      return await driver.getContainerStats(server.containerId);
+      const stats = await driver.getContainerStats(server.containerId);
+      return {
+        ...stats,
+        ...disk,
+      };
     } catch {
-      return { cpuPercent: 0, memoryUsageMb: 0, memoryLimitMb: detail.ramMb, memoryPercent: 0, pids: 0 };
+      return {
+        cpuPercent: 0,
+        memoryUsageMb: 0,
+        memoryLimitMb: detail.ramMb,
+        memoryPercent: 0,
+        networkRxBytes: 0,
+        networkTxBytes: 0,
+        pids: 0,
+        ...disk,
+      };
     }
   });
 
@@ -307,5 +426,263 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
       .header('Content-Type', 'application/zip')
       .header('Content-Disposition', `attachment; filename="vaultrealm-debug-${id}.zip"`)
       .send(zipBuffer);
+  });
+
+  // ── GET /api/servers/:id/mods ──────────────────────────────────────────────
+  app.get('/api/servers/:id/mods', { preHandler: [requireAuth] }, async (request) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:view', id);
+
+    const detail = await getServerDetail(id);
+    const folder = getAddonsFolder(detail.templateId);
+    const detectedGameVersion = detectServerGameVersion(id, detail.templateId) || detail.version;
+    const mods = await listInstalledMods(id, detail.templateId);
+    return {
+      folder,
+      detectedGameVersion,
+      serverType: detail.serverType,
+      mods,
+    };
+  });
+
+  // ── POST /api/servers/:id/mods/install ─────────────────────────────────────
+  app.post('/api/servers/:id/mods/install', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:files', id);
+
+    const parsed = validate(installModSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const detail = await getServerDetail(id);
+    const result = await installModFromUrl(
+      id,
+      detail.templateId,
+      parsed.data.downloadUrl,
+      parsed.data.filename,
+    );
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.mod.install',
+      target: id,
+      ip: request.ip,
+      data: { filename: result.filename, projectId: parsed.data.projectId },
+    });
+
+    return reply.status(201).send(result);
+  });
+
+  // ── POST /api/servers/:id/mods/upload ──────────────────────────────────────
+  app.post('/api/servers/:id/mods/upload', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:files', id);
+
+    const parsed = validate(uploadModSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const detail = await getServerDetail(id);
+    const result = await saveUploadedMod(
+      id,
+      detail.templateId,
+      parsed.data.filename,
+      parsed.data.contentBase64,
+    );
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.mod.upload',
+      target: id,
+      ip: request.ip,
+      data: { filename: result.filename, sizeBytes: result.sizeBytes },
+    });
+
+    return reply.status(201).send(result);
+  });
+
+  // ── POST /api/servers/:id/mods/toggle ──────────────────────────────────────
+  app.post('/api/servers/:id/mods/toggle', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:files', id);
+
+    const parsed = validate(toggleModSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const detail = await getServerDetail(id);
+    const result = await toggleMod(id, detail.templateId, parsed.data.filename, parsed.data.enable);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.mod.toggle',
+      target: id,
+      ip: request.ip,
+      data: { filename: parsed.data.filename, enable: parsed.data.enable },
+    });
+
+    return reply.status(200).send(result);
+  });
+
+  // ── DELETE /api/servers/:id/mods/:filename ─────────────────────────────────
+  app.delete('/api/servers/:id/mods/:filename', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id, filename } = request.params as { id: string; filename: string };
+    await assertCan(user, 'server:files', id);
+
+    const detail = await getServerDetail(id);
+    await deleteMod(id, detail.templateId, filename);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.mod.delete',
+      target: id,
+      ip: request.ip,
+      data: { filename },
+    });
+
+    return reply.status(200).send({ message: 'Mod file deleted.' });
+  });
+
+  // ── GET /api/servers/:id/players ───────────────────────────────────────────
+  app.get('/api/servers/:id/players', { preHandler: [requireAuth] }, async (request) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:view', id);
+
+    return getServerPlayersData(id, user.id);
+  });
+
+  // ── POST /api/servers/:id/players/kick ─────────────────────────────────────
+  app.post('/api/servers/:id/players/kick', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(kickPlayerSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await kickPlayer(id, user.id, parsed.data.player, parsed.data.reason, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.player.kick',
+      target: id,
+      ip: request.ip,
+      data: { player: parsed.data.player, reason: parsed.data.reason },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/ban ──────────────────────────────────────
+  app.post('/api/servers/:id/players/ban', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(banPlayerSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await banPlayer(id, user.id, parsed.data.player, parsed.data.reason, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.player.ban',
+      target: id,
+      ip: request.ip,
+      data: { player: parsed.data.player, reason: parsed.data.reason },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/unban ────────────────────────────────────
+  app.post('/api/servers/:id/players/unban', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(unbanPlayerSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await unbanPlayer(id, user.id, parsed.data.player, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.player.unban',
+      target: id,
+      ip: request.ip,
+      data: { player: parsed.data.player },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/ban-ip ───────────────────────────────────
+  app.post('/api/servers/:id/players/ban-ip', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(banIpSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await banIp(id, user.id, parsed.data.ipOrPlayer, parsed.data.reason, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.ip.ban',
+      target: id,
+      ip: request.ip,
+      data: { target: parsed.data.ipOrPlayer, reason: parsed.data.reason },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/unban-ip ─────────────────────────────────
+  app.post('/api/servers/:id/players/unban-ip', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(unbanIpSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await unbanIp(id, user.id, parsed.data.ip, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.ip.unban',
+      target: id,
+      ip: request.ip,
+      data: { ip: parsed.data.ip },
+    });
+
+    return reply.status(200).send(res);
+  });
+
+  // ── POST /api/servers/:id/players/op ───────────────────────────────────────
+  app.post('/api/servers/:id/players/op', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:console', id);
+
+    const parsed = validate(setOpSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const res = await setPlayerOp(id, user.id, parsed.data.player, parsed.data.op, request.ip);
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.player.op',
+      target: id,
+      ip: request.ip,
+      data: { player: parsed.data.player, op: parsed.data.op },
+    });
+
+    return reply.status(200).send(res);
   });
 }

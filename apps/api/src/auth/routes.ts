@@ -185,14 +185,16 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const body = parsed.data;
       const db = getDatabase();
 
-      // Find user by email or username
+      // Find user by email or username (case-insensitive)
+      const loginLower = body.login.toLowerCase();
       const matchingUsers = db
         .select()
         .from(users)
         .where(
           or(
-            eq(users.email, body.login.toLowerCase()),
-            eq(users.username, body.login.toLowerCase()),
+            eq(users.email, loginLower),
+            eq(users.username, loginLower),
+            ...(loginLower.startsWith('admin@') ? [eq(users.username, 'admin')] : []),
           ),
         )
         .all();

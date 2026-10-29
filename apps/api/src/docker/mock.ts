@@ -445,6 +445,37 @@ export class MockDockerDriver implements DockerDriver {
     this.onPullImage = undefined;
   }
 
+  async exec(id: string, cmd: string[]): Promise<{ exitCode: number; output: string }> {
+    const c = this.getOrThrow(id);
+    if (!c.state.running) {
+      throw new Error(`Container ${id} is not running`);
+    }
+    const fullCmd = cmd.join(' ');
+    // Handle mock responses for Minecraft rcon-cli
+    if (fullCmd.includes('rcon-cli list')) {
+      return {
+        exitCode: 0,
+        output: 'There are 1 of a max of 20 players online: TestPlayer',
+      };
+    }
+    if (fullCmd.includes('ban-ip')) {
+      return {
+        exitCode: 0,
+        output: `Banned IP successfully.`,
+      };
+    }
+    if (fullCmd.includes('kick')) {
+      return {
+        exitCode: 0,
+        output: `Kicked player.`,
+      };
+    }
+    return {
+      exitCode: 0,
+      output: `[Mock exec] Output for ${fullCmd}`,
+    };
+  }
+
   private getOrThrow(id: string): MockContainer {
     const container = this.containers.get(id);
     if (!container) {

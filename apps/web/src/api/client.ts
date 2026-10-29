@@ -35,6 +35,22 @@ export interface ServerDetail {
   ports: ServerPort[];
   createdAt: string;
   lastStartedAt: string | null;
+  serverType?: string;
+  version?: string;
+}
+
+export interface TemplateEnvVarOption {
+  label: string;
+  value: string;
+}
+
+export interface TemplateEnvVar {
+  key: string;
+  label: string;
+  default?: string;
+  required?: boolean;
+  description?: string;
+  options?: TemplateEnvVarOption[];
 }
 
 export interface GameTemplate {
@@ -47,7 +63,62 @@ export interface GameTemplate {
   defaultCpu: number;
   defaultDiskMb: number;
   ports: Array<{ name: string; containerPort: number; protocol: 'tcp' | 'udp' }>;
-  env: Array<{ key: string; label: string; default?: string; required?: boolean }>;
+  env: TemplateEnvVar[];
+}
+
+export interface TemplateVersionsResponse {
+  latest: string;
+  recommended: string;
+  versions: string[];
+  source: string;
+}
+
+export interface InstalledMod {
+  filename: string;
+  sizeBytes: number;
+  enabled: boolean;
+  modifiedAt: string;
+}
+
+export interface ServerModsResponse {
+  folder: string;
+  detectedGameVersion?: string | null;
+  serverType?: string | null;
+  mods: InstalledMod[];
+}
+
+export interface BannedPlayer {
+  uuid?: string;
+  name: string;
+  created?: string;
+  source?: string;
+  expires?: string;
+  reason?: string;
+}
+
+export interface BannedIp {
+  ip: string;
+  created?: string;
+  source?: string;
+  expires?: string;
+  reason?: string;
+}
+
+export interface ServerOp {
+  uuid?: string;
+  name: string;
+  level?: number;
+}
+
+export interface ServerPlayersData {
+  online: {
+    count: number;
+    max: number;
+    players: string[];
+  };
+  bannedPlayers: BannedPlayer[];
+  bannedIps: BannedIp[];
+  ops: ServerOp[];
 }
 
 export interface CapacityStatus {
@@ -93,6 +164,19 @@ export interface TimelineEvent {
   message: string;
   ts: string;
   dataJson?: string;
+}
+
+export interface ContainerStats {
+  cpuPercent: number;
+  memoryUsageMb: number;
+  memoryLimitMb: number;
+  memoryPercent: number;
+  networkRxBytes: number;
+  networkTxBytes: number;
+  pids: number;
+  diskUsedMb?: number;
+  diskLimitMb?: number;
+  diskPercent?: number;
 }
 
 const TOKEN_KEY = 'vr_session_token';
@@ -196,10 +280,13 @@ export const api = {
 
   // Templates
   listTemplates: () => request<GameTemplate[]>('/api/templates'),
+  getTemplateVersions: (templateId: string) =>
+    request<TemplateVersionsResponse>(`/api/templates/${encodeURIComponent(templateId)}/versions`),
 
   // Servers
   listServers: () => request<ServerDetail[]>('/api/servers'),
   getServer: (id: string) => request<ServerDetail>(`/api/servers/${id}`),
+  getServerStats: (id: string) => request<ContainerStats>(`/api/servers/${id}/stats`),
   deployServer: (data: {
     name: string;
     templateId: string;
@@ -232,6 +319,67 @@ export const api = {
       body: JSON.stringify({ action }),
     }),
   getDebugBundleUrl: (id: string) => `/api/servers/${id}/debug-bundle`,
+
+  // Mods & Addons
+  listServerMods: (id: string) => request<ServerModsResponse>(`/api/servers/${id}/mods`),
+  installServerMod: (
+    id: string,
+    data: { downloadUrl: string; filename: string; projectId?: string; title?: string },
+  ) =>
+    request<{ filename: string; sizeBytes: number }>(`/api/servers/${id}/mods/install`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  uploadServerMod: (
+    id: string,
+    data: { filename: string; contentBase64: string },
+  ) =>
+    request<{ filename: string; sizeBytes: number }>(`/api/servers/${id}/mods/upload`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  toggleServerMod: (id: string, filename: string, enable: boolean) =>
+    request<{ newFilename: string; enabled: boolean }>(`/api/servers/${id}/mods/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ filename, enable }),
+    }),
+  deleteServerMod: (id: string, filename: string) =>
+    request<{ message: string }>(`/api/servers/${id}/mods/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    }),
+
+  // Players & Moderation
+  getServerPlayers: (id: string) => request<ServerPlayersData>(`/api/servers/${id}/players`),
+  kickPlayer: (id: string, player: string, reason?: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/kick`, {
+      method: 'POST',
+      body: JSON.stringify({ player, reason }),
+    }),
+  banPlayer: (id: string, player: string, reason?: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/ban`, {
+      method: 'POST',
+      body: JSON.stringify({ player, reason }),
+    }),
+  unbanPlayer: (id: string, player: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/unban`, {
+      method: 'POST',
+      body: JSON.stringify({ player }),
+    }),
+  banIp: (id: string, ipOrPlayer: string, reason?: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/ban-ip`, {
+      method: 'POST',
+      body: JSON.stringify({ ipOrPlayer, reason }),
+    }),
+  unbanIp: (id: string, ip: string) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/unban-ip`, {
+      method: 'POST',
+      body: JSON.stringify({ ip }),
+    }),
+  setPlayerOp: (id: string, player: string, op: boolean) =>
+    request<{ success: boolean; message: string }>(`/api/servers/${id}/players/op`, {
+      method: 'POST',
+      body: JSON.stringify({ player, op }),
+    }),
 
   // Admin
   listInvites: () => request<Array<{ id: string; code: string; uses: number; maxUses: number; createdAt: string }>>('/api/admin/invites'),

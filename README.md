@@ -62,10 +62,10 @@ pnpm build      # Production build
 
 📖 **[Developer Guide](docs/DEVELOPER_GUIDE.md)** — Architecture, API reference, testing, and how to add templates, routes, and diagnosis rules.
 
-## Project Structure
 
 ```
 VaultRealm/
+## Project Structure
 ├── apps/
 │   ├── api/           # Fastify backend (TypeScript)
 │   │   ├── src/       # Source code

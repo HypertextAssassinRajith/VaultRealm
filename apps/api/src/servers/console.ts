@@ -64,10 +64,13 @@ export async function executeServerCommand(
   if (server.containerId) {
     try {
       const driver = getDockerDriver();
-      // Inspect container state
       const inspect = await driver.inspectContainer(server.containerId);
       if (inspect.state.running) {
-        output = `[Server Console] Executed "${cleanCmd}" successfully.`;
+        // Run via rcon-cli for minecraft, or sh -c for generic containers
+        const isMinecraft = server.templateId.includes('minecraft');
+        const execCmd = isMinecraft ? ['rcon-cli', cleanCmd] : ['sh', '-c', cleanCmd];
+        const res = await driver.exec(server.containerId, execCmd);
+        output = res.output || `[Server Console] Executed "${cleanCmd}" successfully.`;
       }
     } catch (err) {
       output = `Command executed with warning: ${err instanceof Error ? err.message : String(err)}`;

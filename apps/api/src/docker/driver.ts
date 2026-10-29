@@ -91,6 +91,9 @@ export interface ContainerStats {
   networkRxBytes: number;
   networkTxBytes: number;
   pids: number;
+  diskUsedMb?: number;
+  diskLimitMb?: number;
+  diskPercent?: number;
 }
 
 export interface PullProgress {
@@ -195,4 +198,8 @@ export interface DockerDriver {
     id: string,
     update: { memoryMb?: number; cpuLimit?: number; restartPolicy?: string },
   ): Promise<void>;
+
+  // ── Exec ───────────────────────────────────────────────────────────────────
+  /** Execute a command inside a running container. */
+  exec(id: string, cmd: string[]): Promise<{ exitCode: number; output: string }>;
 }

@@ -43,6 +43,7 @@ describe('Route permission enumeration', () => {
       { method: 'GET', path: '/api/admin/invites' },
       { method: 'DELETE', path: '/api/admin/invites/test-id' },
       { method: 'GET', path: '/api/templates' },
+      { method: 'GET', path: '/api/templates/minecraft-java/versions' },
       { method: 'GET', path: '/api/system/capacity' },
       { method: 'GET', path: '/api/servers' },
       { method: 'POST', path: '/api/servers' },
@@ -57,6 +58,18 @@ describe('Route permission enumeration', () => {
       { method: 'GET', path: '/api/servers/srv-test/diagnose' },
       { method: 'POST', path: '/api/servers/srv-test/fixes/apply' },
       { method: 'GET', path: '/api/servers/srv-test/debug-bundle' },
+      { method: 'GET', path: '/api/servers/srv-test/mods' },
+      { method: 'POST', path: '/api/servers/srv-test/mods/install' },
+      { method: 'POST', path: '/api/servers/srv-test/mods/upload' },
+      { method: 'POST', path: '/api/servers/srv-test/mods/toggle' },
+      { method: 'DELETE', path: '/api/servers/srv-test/mods/test-mod.jar' },
+      { method: 'GET', path: '/api/servers/srv-test/players' },
+      { method: 'POST', path: '/api/servers/srv-test/players/kick' },
+      { method: 'POST', path: '/api/servers/srv-test/players/ban' },
+      { method: 'POST', path: '/api/servers/srv-test/players/unban' },
+      { method: 'POST', path: '/api/servers/srv-test/players/ban-ip' },
+      { method: 'POST', path: '/api/servers/srv-test/players/unban-ip' },
+      { method: 'POST', path: '/api/servers/srv-test/players/op' },
     ];
 
     for (const route of protectedRoutes) {

@@ -456,6 +456,19 @@ export interface ServerDetail {
   ports: Array<{ name: string; hostPort: number; containerPort: number; protocol: string }>;
   createdAt: string;
   lastStartedAt: string | null;
+  serverType?: string;
+  version?: string;
+}
+
+function parseServerMeta(envJson: string, templateId: string): { serverType?: string; version?: string } {
+  try {
+    const env = JSON.parse(envJson || '{}') as Record<string, string>;
+    const serverType = env.TYPE || (templateId === 'minecraft-bedrock' ? 'BEDROCK' : undefined);
+    const version = env.VERSION || undefined;
+    return { serverType, version };
+  } catch {
+    return {};
+  }
 }
 
 export async function getServerDetail(serverId: string): Promise<ServerDetail> {
@@ -466,6 +479,7 @@ export async function getServerDetail(serverId: string): Promise<ServerDetail> {
 
   const template = getTemplate(server.templateId);
   const ports = db.select().from(serverPorts).where(eq(serverPorts.serverId, serverId)).all();
+  const { serverType, version } = parseServerMeta(server.envJson, server.templateId);
 
   // Try to sync status from Docker if container exists
   if (server.containerId) {
@@ -511,6 +525,8 @@ export async function getServerDetail(serverId: string): Promise<ServerDetail> {
     })),
     createdAt: server.createdAt,
     lastStartedAt: server.lastStartedAt,
+    serverType,
+    version,
   };
 }
 
@@ -525,6 +541,7 @@ export async function listUserServers(userId: string): Promise<ServerDetail[]> {
   for (const server of userServers) {
     const template = getTemplate(server.templateId);
     const ports = db.select().from(serverPorts).where(eq(serverPorts.serverId, server.id)).all();
+    const { serverType, version } = parseServerMeta(server.envJson, server.templateId);
 
     results.push({
       id: server.id,
@@ -543,6 +560,8 @@ export async function listUserServers(userId: string): Promise<ServerDetail[]> {
       })),
       createdAt: server.createdAt,
       lastStartedAt: server.lastStartedAt,
+      serverType,
+      version,
     });
   }
 

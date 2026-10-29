@@ -108,6 +108,22 @@ describe('Diagnosis Rules Engine', () => {
     expect(perm?.fixes.some((fx) => fx.action.type === 'chown-volume')).toBe(true);
   });
 
+  it('rule: permission-denied does not trigger false positive on guava failureaccess unpacking log', () => {
+    const logs = [
+      'Unpacking com/google/guava/failureaccess/1.0.3/failureaccess-1.0.3.jar (libraries:com.google.guava:failureaccess:1.0.3) to libraries/com/google/guava/failureaccess/1.0.3/failureaccess-1.0.3.jar',
+      'Loading Minecraft 26.3 with Fabric Loader 0.20.1',
+      'Done (4.2s)! For help, type "help"',
+    ];
+    const ctx: DiagnosisContext = {
+      serverId: 'test-srv-guava',
+      logs,
+    };
+
+    const findings = evaluateRules(ctx);
+    const perm = findings.find((f) => f.ruleId === 'permission-denied');
+    expect(perm).toBeUndefined();
+  });
+
   it('rule: disk-full detects storage exhaustion and suggests disk cleanup', () => {
     const logs = loadLogFixture('disk-full.log');
     const ctx: DiagnosisContext = {
