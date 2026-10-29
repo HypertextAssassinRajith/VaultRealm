@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { buildTestApp, cleanupTestApp } from './helpers.js';
+import { buildTestApp, cleanupTestApp, registerAdmin } from './helpers.js';
 import { getMinecraftJavaVersions, getTemplateVersions } from '../src/servers/versions.js';
 
 describe('Template Versions Provider', () => {
@@ -10,20 +10,8 @@ describe('Template Versions Provider', () => {
   beforeEach(async () => {
     app = await buildTestApp();
 
-    // Register admin user
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: {
-        email: 'admin@vaultrealm.test',
-        username: 'admin',
-        password: 'password123',
-      },
-    });
-    const cookieHeader = res.headers['set-cookie'];
-    adminCookie = Array.isArray(cookieHeader)
-      ? cookieHeader[0].split(';')[0].replace('vr_session=', '')
-      : (cookieHeader as string).split(';')[0].replace('vr_session=', '');
+    const { cookies } = await registerAdmin(app);
+    adminCookie = cookies['vr_session']!;
   });
 
   afterEach(() => {

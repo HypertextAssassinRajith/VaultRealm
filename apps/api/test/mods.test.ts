@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import fs from 'node:fs';
-import { buildTestApp, cleanupTestApp } from './helpers.js';
+import { buildTestApp, cleanupTestApp, registerAdmin } from './helpers.js';
 import { safepath } from '../src/safepath.js';
 import { getModsDirectory } from '../src/servers/mods.js';
 
@@ -13,20 +13,8 @@ describe('Server Mods & Plugins Management', () => {
   beforeEach(async () => {
     app = await buildTestApp();
 
-    // Register admin user
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: {
-        email: 'admin@vaultrealm.test',
-        username: 'admin',
-        password: 'password123',
-      },
-    });
-    const cookieHeader = res.headers['set-cookie'];
-    adminCookie = Array.isArray(cookieHeader)
-      ? cookieHeader[0].split(';')[0].replace('vr_session=', '')
-      : (cookieHeader as string).split(';')[0].replace('vr_session=', '');
+    const { cookies } = await registerAdmin(app);
+    adminCookie = cookies['vr_session']!;
 
     // Create a Fabric Minecraft server
     const serverRes = await app.inject({
@@ -86,11 +74,11 @@ describe('Server Mods & Plugins Management', () => {
 
     const sodium = body.mods.find((m: { filename: string }) => m.filename === 'sodium-fabric.jar');
     expect(sodium).toBeDefined();
-    expect(sodium.enabled).toBe(true);
+    expect(sodium!.enabled).toBe(true);
 
     const lithium = body.mods.find((m: { filename: string }) => m.filename === 'lithium.jar.disabled');
     expect(lithium).toBeDefined();
-    expect(lithium.enabled).toBe(false);
+    expect(lithium!.enabled).toBe(false);
   });
 
   it('POST /api/servers/:id/mods/toggle disables and enables mods', async () => {
