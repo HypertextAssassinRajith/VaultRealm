@@ -6,8 +6,9 @@ export const permissionDeniedRule: DiagnosisRule = {
   match(ctx: DiagnosisContext): Finding | null {
     const permLine = ctx.logs.find(
       (line) =>
-        /Permission denied/i.test(line) ||
-        /EACCES/i.test(line) ||
+        /\bPermission denied\b/i.test(line) ||
+        /\bEACCES\b/i.test(line) ||
+        /\bEPERM\b/i.test(line) ||
         /\(Permission denied\)/i.test(line),
     );
 

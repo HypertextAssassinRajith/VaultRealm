@@ -7,8 +7,8 @@ export const diskFullRule: DiagnosisRule = {
     const diskLine = ctx.logs.find(
       (line) =>
         /No space left on device/i.test(line) ||
-        /ENOSPC/i.test(line) ||
-        /disk full/i.test(line),
+        /\bENOSPC\b/i.test(line) ||
+        /\bdisk full\b/i.test(line),
     );
 
     if (diskLine) {
