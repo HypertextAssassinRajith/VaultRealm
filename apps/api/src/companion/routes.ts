@@ -49,6 +49,7 @@ const testEndpointSchema = z.object({
 const ENDPOINT_PRESETS = [
   { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini' },
   { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'openai/gpt-4o-mini' },
+  { id: 'vercel', name: 'Vercel AI Gateway', baseUrl: 'https://ai-gateway.vercel.sh/v1', defaultModel: 'openai/gpt-4o-mini' },
   { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.1-8b-instant' },
   { id: 'together', name: 'Together AI', baseUrl: 'https://api.together.xyz/v1', defaultModel: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' },
   { id: 'ollama', name: 'Ollama (Local)', baseUrl: 'http://localhost:11434/v1', defaultModel: 'llama3.1' },

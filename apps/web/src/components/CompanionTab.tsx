@@ -1093,7 +1093,7 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
               <div style={{ fontSize: '32px', marginBottom: '8px' }}>⚡</div>
               <div style={{ fontWeight: 600, color: '#e2e8f0', marginBottom: '4px' }}>No Endpoints Configured</div>
               <div style={{ fontSize: '0.85rem' }}>
-                Use the form on the right to connect an OpenAI, OpenRouter, Groq, or local Ollama endpoint.
+                Use the form on the right to connect an OpenAI, OpenRouter, Vercel AI Gateway, Groq, or local Ollama endpoint.
               </div>
             </div>
           ) : (
