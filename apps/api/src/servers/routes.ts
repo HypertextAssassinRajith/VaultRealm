@@ -13,7 +13,15 @@ import { assertCan } from '../auth/rbac.js';
 import { validate } from '../validation.js';
 import { getAllTemplates } from './templates.js';
 import { getTemplateVersions } from './versions.js';
-import { listInstalledMods, installModFromUrl, toggleMod, deleteMod, getAddonsFolder } from './mods.js';
+import {
+  listInstalledMods,
+  installModFromUrl,
+  toggleMod,
+  deleteMod,
+  getAddonsFolder,
+  detectServerGameVersion,
+  saveUploadedMod,
+} from './mods.js';
 import { writeAudit } from '../audit/log.js';
 import {
   startServer,
@@ -77,6 +85,11 @@ const installModSchema = z.object({
 const toggleModSchema = z.object({
   filename: z.string().min(1).max(255),
   enable: z.boolean(),
+});
+
+const uploadModSchema = z.object({
+  filename: z.string().min(1).max(255),
+  contentBase64: z.string().min(1, 'File content cannot be empty'),
 });
 
 // ── Route registration ───────────────────────────────────────────────────────
@@ -386,8 +399,14 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
 
     const detail = await getServerDetail(id);
     const folder = getAddonsFolder(detail.templateId);
+    const detectedGameVersion = detectServerGameVersion(id, detail.templateId) || detail.version;
     const mods = await listInstalledMods(id, detail.templateId);
-    return { folder, mods };
+    return {
+      folder,
+      detectedGameVersion,
+      serverType: detail.serverType,
+      mods,
+    };
   });
 
   // ── POST /api/servers/:id/mods/install ─────────────────────────────────────
@@ -413,6 +432,34 @@ export async function serverRoutes(app: FastifyInstance): Promise<void> {
       target: id,
       ip: request.ip,
       data: { filename: result.filename, projectId: parsed.data.projectId },
+    });
+
+    return reply.status(201).send(result);
+  });
+
+  // ── POST /api/servers/:id/mods/upload ──────────────────────────────────────
+  app.post('/api/servers/:id/mods/upload', { preHandler: [requireAuth] }, async (request, reply) => {
+    const user = getRequestUser(request);
+    const { id } = request.params as { id: string };
+    await assertCan(user, 'server:files', id);
+
+    const parsed = validate(uploadModSchema, request.body, reply);
+    if (!parsed.success) return;
+
+    const detail = await getServerDetail(id);
+    const result = await saveUploadedMod(
+      id,
+      detail.templateId,
+      parsed.data.filename,
+      parsed.data.contentBase64,
+    );
+
+    writeAudit({
+      userId: user.id,
+      action: 'server.mod.upload',
+      target: id,
+      ip: request.ip,
+      data: { filename: result.filename, sizeBytes: result.sizeBytes },
     });
 
     return reply.status(201).send(result);

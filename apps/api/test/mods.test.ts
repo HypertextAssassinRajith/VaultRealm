@@ -3,7 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import fs from 'node:fs';
 import { buildTestApp, cleanupTestApp, registerAdmin } from './helpers.js';
 import { safepath } from '../src/safepath.js';
-import { getModsDirectory } from '../src/servers/mods.js';
+import { getModsDirectory, detectServerGameVersion } from '../src/servers/mods.js';
+import { getServerDataDir } from '../src/servers/volume.js';
 
 describe('Server Mods & Plugins Management', () => {
   let app: FastifyInstance;
@@ -129,5 +130,37 @@ describe('Server Mods & Plugins Management', () => {
 
     expect(delRes.statusCode).toBe(200);
     expect(fs.existsSync(`${modsDir}/voice-chat.jar`)).toBe(false);
+  });
+
+  it('POST /api/servers/:id/mods/upload uploads an external .jar file', async () => {
+    const fakeJarBase64 = Buffer.from('PK\x03\x04fake-jar-data').toString('base64');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/servers/${serverId}/mods/upload`,
+      cookies: { vr_session: adminCookie },
+      payload: {
+        filename: 'custom-mod.jar',
+        contentBase64: fakeJarBase64,
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().filename).toBe('custom-mod.jar');
+    expect(res.json().sizeBytes).toBeGreaterThan(0);
+
+    const modsDir = getModsDirectory(serverId, 'minecraft-java');
+    expect(fs.existsSync(`${modsDir}/custom-mod.jar`)).toBe(true);
+  });
+
+  it('detectServerGameVersion extracts running version from .fabric-manifest.json', () => {
+    const serverDir = getServerDataDir(serverId);
+    fs.writeFileSync(
+      `${serverDir}/.fabric-manifest.json`,
+      JSON.stringify({ origin: { game: '26.3', loader: '0.20.1' } }),
+    );
+
+    const detected = detectServerGameVersion(serverId, 'minecraft-java');
+    expect(detected).toBe('26.3');
   });
 });

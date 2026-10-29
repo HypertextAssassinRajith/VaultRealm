@@ -30,18 +30,28 @@ interface ModrinthVersionFile {
   size: number;
 }
 
+interface ModrinthDependency {
+  version_id: string | null;
+  project_id: string | null;
+  file_name?: string | null;
+  dependency_type: 'required' | 'optional' | 'incompatible' | 'embedded';
+}
+
 interface ModrinthVersion {
   id: string;
   name: string;
+  version_type?: string;
   game_versions: string[];
   loaders: string[];
   files: ModrinthVersionFile[];
+  dependencies?: ModrinthDependency[];
 }
 
 export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
   const [subtab, setSubtab] = useState<'installed' | 'browse'>('browse');
   const [installedMods, setInstalledMods] = useState<InstalledMod[]>([]);
   const [addonsFolder, setAddonsFolder] = useState<'mods' | 'plugins'>('mods');
+  const [runningGameVersion, setRunningGameVersion] = useState<string | null>(null);
   const [loadingInstalled, setLoadingInstalled] = useState(false);
 
   // Search state
@@ -50,9 +60,24 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
 
+  // Upload state
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+
   const { addToast } = useToast();
 
   const loader = (server.serverType || 'fabric').toLowerCase();
+  const activeGameVersion =
+    runningGameVersion ||
+    (server.version && server.version !== 'LATEST' ? server.version.replace(/^v/, '') : null);
+
+  const getLoaderFacet = () => {
+    if (loader.includes('forge') && !loader.includes('neo')) return 'forge';
+    if (loader.includes('neo')) return 'neoforge';
+    if (loader.includes('quilt')) return 'quilt';
+    if (loader.includes('paper') || loader.includes('purpur') || loader.includes('spigot')) return 'spigot';
+    return 'fabric';
+  };
 
   const loadInstalled = async () => {
     setLoadingInstalled(true);
@@ -60,6 +85,9 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
       const res = await api.listServerMods(server.id);
       setInstalledMods(res.mods);
       setAddonsFolder(res.folder === 'plugins' ? 'plugins' : 'mods');
+      if (res.detectedGameVersion) {
+        setRunningGameVersion(res.detectedGameVersion);
+      }
     } catch {
       // not available or error
     } finally {
@@ -71,27 +99,18 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
     loadInstalled();
   }, [server.id]);
 
-  // Search Modrinth API
+  // Search Modrinth API with exact loader and version filtering
   const searchModrinth = async (query = searchQuery) => {
     setIsSearching(true);
     try {
-      // Map server type to Modrinth category facet
-      let loaderFacet = 'fabric';
-      if (loader.includes('forge') && !loader.includes('neo')) loaderFacet = 'forge';
-      else if (loader.includes('neo')) loaderFacet = 'neoforge';
-      else if (loader.includes('quilt')) loaderFacet = 'quilt';
-      else if (loader.includes('paper') || loader.includes('purpur') || loader.includes('spigot')) loaderFacet = 'spigot';
-
-      // Modrinth search query with facets
+      const loaderFacet = getLoaderFacet();
       const url = new URL('https://api.modrinth.com/v2/search');
       url.searchParams.set('query', query);
       url.searchParams.set('limit', '12');
 
-      // Add loader facet
       const facets: string[][] = [[`categories:${loaderFacet}`]];
-      if (server.version && server.version !== 'LATEST') {
-        const cleanVer = server.version.replace(/^v/, '');
-        facets.push([`versions:${cleanVer}`]);
+      if (activeGameVersion) {
+        facets.push([`versions:${activeGameVersion}`]);
       }
       url.searchParams.set('facets', JSON.stringify(facets));
 
@@ -109,7 +128,8 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
       console.warn('Modrinth search failed, falling back without version constraint', err);
       // Fallback search without strict version facet
       try {
-        const fallbackUrl = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&limit=12&facets=[["categories:${loader}"]]`;
+        const loaderFacet = getLoaderFacet();
+        const fallbackUrl = `https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&limit=12&facets=[["categories:${loaderFacet}"]]`;
         const res = await fetch(fallbackUrl);
         const data = (await res.json()) as ModrinthSearchResponse;
         setSearchResults(data.hits || []);
@@ -127,32 +147,66 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
     }
   }, [subtab]);
 
-  // Install a mod directly from Modrinth
+  // Install a mod directly from Modrinth with compatible version check and dependency resolution
   const handleInstallMod = async (hit: ModrinthHit) => {
     setInstallingId(hit.project_id);
     try {
-      // 1. Fetch available versions for this project
-      const versionsUrl = `https://api.modrinth.com/v2/project/${hit.project_id}/version`;
-      const vRes = await fetch(versionsUrl, {
-        headers: {
-          'User-Agent': 'VaultRealm-Panel/0.5 (https://vaultsoftlabs.tech)',
+      const loaderFacet = getLoaderFacet();
+
+      // 1. Fetch available versions for this project matching loader & active game version
+      const params = new URLSearchParams();
+      params.set('loaders', JSON.stringify([loaderFacet]));
+      if (activeGameVersion) {
+        params.set('game_versions', JSON.stringify([activeGameVersion]));
+      }
+
+      const vRes = await fetch(
+        `https://api.modrinth.com/v2/project/${hit.project_id}/version?${params.toString()}`,
+        {
+          headers: {
+            'User-Agent': 'VaultRealm-Panel/0.5 (https://vaultsoftlabs.tech)',
+          },
         },
-      });
-      if (!vRes.ok) throw new Error('Failed to retrieve mod version download');
-      const versions = (await vRes.json()) as ModrinthVersion[];
+      );
+      let versions: ModrinthVersion[] = vRes.ok ? await vRes.json() : [];
+
+      // If strict game_versions returned empty, fallback to loader-only and find best match
+      if (!versions || versions.length === 0) {
+        const fallbackRes = await fetch(
+          `https://api.modrinth.com/v2/project/${hit.project_id}/version?loaders=["${loaderFacet}"]`,
+          {
+            headers: {
+              'User-Agent': 'VaultRealm-Panel/0.5 (https://vaultsoftlabs.tech)',
+            },
+          },
+        );
+        if (fallbackRes.ok) {
+          versions = await fallbackRes.json();
+        }
+      }
 
       if (!versions || versions.length === 0) {
-        throw new Error('No release versions available for this mod.');
+        throw new Error(`No compatible versions found for ${loaderFacet} on Modrinth.`);
       }
 
       // 2. Pick best matching version
-      const targetVersion = server.version && server.version !== 'LATEST' ? server.version.replace(/^v/, '') : null;
-      let matchedVersion = targetVersion
-        ? versions.find((v) => v.game_versions.includes(targetVersion))
-        : null;
+      let matchedVersion: ModrinthVersion | null = null;
+      if (activeGameVersion) {
+        matchedVersion =
+          versions.find(
+            (v) => v.game_versions.includes(activeGameVersion) && v.version_type === 'release',
+          ) ||
+          versions.find((v) => v.game_versions.includes(activeGameVersion)) ||
+          versions.find((v) =>
+            v.game_versions.some(
+              (gv) => gv.startsWith(activeGameVersion) || activeGameVersion.startsWith(gv),
+            ),
+          ) ||
+          null;
+      }
 
       if (!matchedVersion) {
-        matchedVersion = versions[0]; // pick latest
+        matchedVersion = versions.find((v) => v.version_type === 'release') || versions[0];
       }
 
       const primaryFile = matchedVersion?.files?.find((f) => f.primary) || matchedVersion?.files?.[0];
@@ -160,7 +214,61 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
         throw new Error('No download file found for this mod version.');
       }
 
-      // 3. Request panel backend to safely download .jar to /data/mods
+      // 3. Auto-install required dependencies
+      const requiredDeps = (matchedVersion?.dependencies || []).filter(
+        (d) => d.dependency_type === 'required' && (d.project_id || d.version_id),
+      );
+
+      const installedDepsList: string[] = [];
+
+      for (const dep of requiredDeps) {
+        if (dep.project_id) {
+          // Check if already installed
+          const isDepInstalled = installedMods.some((m) =>
+            m.filename.toLowerCase().includes(dep.project_id!.toLowerCase()),
+          );
+          if (isDepInstalled) continue;
+
+          try {
+            const depParams = new URLSearchParams();
+            depParams.set('loaders', JSON.stringify([loaderFacet]));
+            if (activeGameVersion) {
+              depParams.set('game_versions', JSON.stringify([activeGameVersion]));
+            }
+            const depRes = await fetch(
+              `https://api.modrinth.com/v2/project/${dep.project_id}/version?${depParams.toString()}`,
+              { headers: { 'User-Agent': 'VaultRealm-Panel/0.5 (https://vaultsoftlabs.tech)' } },
+            );
+            if (depRes.ok) {
+              const depVersions = (await depRes.json()) as ModrinthVersion[];
+              const depMatch =
+                (activeGameVersion
+                  ? depVersions.find(
+                      (v) =>
+                        v.game_versions.includes(activeGameVersion) &&
+                        v.version_type === 'release',
+                    ) || depVersions.find((v) => v.game_versions.includes(activeGameVersion))
+                  : null) ||
+                depVersions.find((v) => v.version_type === 'release') ||
+                depVersions[0];
+
+              const depFile = depMatch?.files?.find((f) => f.primary) || depMatch?.files?.[0];
+              if (depFile) {
+                await api.installServerMod(server.id, {
+                  downloadUrl: depFile.url,
+                  filename: depFile.filename,
+                  projectId: dep.project_id,
+                });
+                installedDepsList.push(depFile.filename);
+              }
+            }
+          } catch {
+            // best-effort dependency install
+          }
+        }
+      }
+
+      // 4. Request panel backend to safely download .jar to /data/mods
       await api.installServerMod(server.id, {
         downloadUrl: primaryFile.url,
         filename: primaryFile.filename,
@@ -171,7 +279,10 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
       addToast({
         type: 'success',
         title: `Installed ${hit.title}`,
-        message: 'Mod installed into /mods folder. Restart your server to activate.',
+        message:
+          installedDepsList.length > 0
+            ? `Installed ${hit.title} and auto-resolved dependencies (${installedDepsList.join(', ')}). Restart server to load.`
+            : `Installed into /${addonsFolder} (compatible with MC ${activeGameVersion || 'game'}). Restart server to activate.`,
       });
 
       await loadInstalled();
@@ -183,6 +294,77 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
       });
     } finally {
       setInstallingId(null);
+    }
+  };
+
+  // Upload mod file handler
+  const processUploadFiles = async (files: FileList | File[]) => {
+    setIsUploading(true);
+    let uploadedCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file) continue;
+
+      if (!file.name.endsWith('.jar') && !file.name.endsWith('.jar.disabled')) {
+        addToast({
+          type: 'error',
+          title: 'Invalid File',
+          message: `${file.name} is not a .jar mod/plugin file.`,
+        });
+        continue;
+      }
+
+      try {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const res = reader.result as string;
+            const b64 = res.includes(',') ? res.split(',')[1] : res;
+            resolve(b64 || '');
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        await api.uploadServerMod(server.id, {
+          filename: file.name,
+          contentBase64: base64,
+        });
+
+        uploadedCount++;
+      } catch (err) {
+        addToast({
+          type: 'error',
+          title: `Upload Failed: ${file.name}`,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    setIsUploading(false);
+    if (uploadedCount > 0) {
+      addToast({
+        type: 'success',
+        title: 'Upload Successful',
+        message: `Uploaded ${uploadedCount} file(s) into /${addonsFolder}. Restart server to apply.`,
+      });
+      await loadInstalled();
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      processUploadFiles(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files) {
+      processUploadFiles(e.dataTransfer.files);
     }
   };
 
@@ -230,19 +412,19 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
       {/* Header Strip with Controls */}
       <div className="card p-5 border border-border/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-bold text-base text-foreground flex items-center gap-2">
               <span>🧩</span> {addonsFolder === 'plugins' ? 'Plugins & Extensions' : 'Mods & Addons'}
             </h3>
             <span className="badge badge-info text-[10px] font-mono uppercase">
-              {server.serverType || 'Standard'}
+              ⚡ {server.serverType || 'Standard'}
             </span>
-            <span className="badge badge-neutral text-[10px] font-mono">
-              {server.version || 'LATEST'}
+            <span className="badge badge-neutral text-[10px] font-mono text-violet-300 border-violet-500/30 bg-violet-950/30">
+              🏷️ {runningGameVersion ? `MC ${runningGameVersion}` : (server.version || 'LATEST')}
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Browse and 1-click install open-source community mods from{' '}
+            Browse compatible open-source community mods from{' '}
             <a
               href="https://modrinth.com"
               target="_blank"
@@ -251,7 +433,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
             >
               Modrinth ↗
             </a>{' '}
-            directly into your server’s <span className="font-mono text-foreground">/{addonsFolder}</span> folder.
+            or upload custom <span className="font-mono text-foreground">.jar</span> files directly into <span className="font-mono text-foreground">/{addonsFolder}</span>.
           </p>
         </div>
 
@@ -306,7 +488,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
             <div className="relative flex-1">
               <input
                 type="text"
-                placeholder={`Search ${server.serverType || 'Fabric'} mods (e.g. Lithium, Voice Chat, Chunky)...`}
+                placeholder={`Search ${server.serverType || 'Fabric'} mods compatible with MC ${activeGameVersion || 'game'}...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && searchModrinth(searchQuery)}
@@ -325,7 +507,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
 
           {/* Quick-Picks Pills for Popular Server Mods */}
           <div className="flex items-center gap-1.5 flex-wrap text-xs">
-            <span className="text-[11px] text-muted-foreground font-mono">Popular Server Addons:</span>
+            <span className="text-[11px] text-muted-foreground font-mono">Popular Addons:</span>
             {['Fabric API', 'Lithium', 'FerriteCore', 'Simple Voice Chat', 'Chunky', 'Spark'].map((preset) => (
               <button
                 key={preset}
@@ -344,7 +526,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
           {isSearching ? (
             <div className="card p-12 text-center text-muted-foreground flex flex-col items-center justify-center">
               <span className="inline-block animate-spin text-2xl text-primary mb-2">⟳</span>
-              <span className="text-xs font-mono">Querying Modrinth open-source community catalog...</span>
+              <span className="text-xs font-mono">Querying Modrinth community catalog for MC {activeGameVersion || 'compatible'}...</span>
             </div>
           ) : searchResults.length === 0 ? (
             <div className="card p-12 text-center text-muted-foreground">
@@ -431,6 +613,47 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
       {/* ── Subtab 2: Installed Mods ───────────────────────────────────────── */}
       {subtab === 'installed' && (
         <div className="space-y-4">
+          {/* Upload Mod (.jar) Drag and Drop Zone */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={handleDrop}
+            className={`card p-4 border-2 border-dashed transition-all ${
+              isDragOver
+                ? 'border-primary bg-primary/10 shadow-lg glow-primary'
+                : 'border-border/80 bg-muted/10 hover:border-primary/50'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{isUploading ? '⏳' : '📤'}</span>
+                <div>
+                  <h4 className="text-xs font-bold text-foreground">
+                    {isUploading ? 'Uploading custom mod file...' : 'Upload Custom Mod or Plugin (.jar)'}
+                  </h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    Drag & drop custom <span className="font-mono text-foreground">.jar</span> files from your computer or browse to upload into <span className="font-mono text-foreground">/{addonsFolder}</span>
+                  </p>
+                </div>
+              </div>
+
+              <label className="btn btn-primary text-xs py-1.5 px-3 font-semibold cursor-pointer shrink-0">
+                <span>{isUploading ? 'Uploading...' : '📁 Browse .jar File'}</span>
+                <input
+                  type="file"
+                  accept=".jar,.disabled"
+                  multiple
+                  disabled={isUploading}
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+              </label>
+            </div>
+          </div>
+
           {loadingInstalled ? (
             <div className="card p-12 text-center text-muted-foreground">
               <span className="animate-spin text-2xl text-primary inline-block mb-2">⟳</span>
@@ -442,8 +665,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
               <h4 className="font-bold text-base text-foreground">No mods installed yet</h4>
               <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
                 Your server’s <span className="font-mono text-foreground">/{addonsFolder}</span> folder is currently empty.
-                Switch to the <span className="text-primary font-semibold">Browse Modrinth</span> tab to install popular
-                mods with a single click.
+                Browse Modrinth for community mods or drag & drop custom .jar files above.
               </p>
               <button
                 onClick={() => setSubtab('browse')}
@@ -506,7 +728,7 @@ export function ServerModsTab({ server, onRestartServer }: ServerModsTabProps) {
                         className="btn btn-secondary text-xs py-1 px-2.5 text-red-400 hover:text-red-300 border-red-500/20"
                         title="Delete mod file"
                       >
-                        🗑️
+                        🗑️ Remove
                       </button>
                     </div>
                   </div>

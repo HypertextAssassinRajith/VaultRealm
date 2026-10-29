@@ -82,6 +82,8 @@ export interface InstalledMod {
 
 export interface ServerModsResponse {
   folder: string;
+  detectedGameVersion?: string | null;
+  serverType?: string | null;
   mods: InstalledMod[];
 }
 
@@ -291,6 +293,14 @@ export const api = {
     data: { downloadUrl: string; filename: string; projectId?: string; title?: string },
   ) =>
     request<{ filename: string; sizeBytes: number }>(`/api/servers/${id}/mods/install`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  uploadServerMod: (
+    id: string,
+    data: { filename: string; contentBase64: string },
+  ) =>
+    request<{ filename: string; sizeBytes: number }>(`/api/servers/${id}/mods/upload`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

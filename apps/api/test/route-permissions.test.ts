@@ -60,6 +60,7 @@ describe('Route permission enumeration', () => {
       { method: 'GET', path: '/api/servers/srv-test/debug-bundle' },
       { method: 'GET', path: '/api/servers/srv-test/mods' },
       { method: 'POST', path: '/api/servers/srv-test/mods/install' },
+      { method: 'POST', path: '/api/servers/srv-test/mods/upload' },
       { method: 'POST', path: '/api/servers/srv-test/mods/toggle' },
       { method: 'DELETE', path: '/api/servers/srv-test/mods/test-mod.jar' },
     ];

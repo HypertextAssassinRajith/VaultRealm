@@ -23,6 +23,63 @@ export function getAddonsFolder(templateId: string): string {
   return isPluginServer ? 'plugins' : 'mods';
 }
 
+export function detectServerGameVersion(serverId: string, _templateId: string): string | null {
+  const serverDir = getServerDataDir(serverId);
+  if (!fs.existsSync(serverDir)) return null;
+
+  // 1. Check .fabric-manifest.json
+  const fabricManifestPath = safepath.resolve(serverDir, '.fabric-manifest.json');
+  if (fs.existsSync(fabricManifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(fabricManifestPath, 'utf8'));
+      if (manifest?.origin?.game) {
+        return String(manifest.origin.game);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2. Check for server launcher jar (e.g. fabric-server-mc.26.3-loader.0.20.1-launcher.1.1.2.jar)
+  try {
+    const files = fs.readdirSync(serverDir);
+    for (const f of files) {
+      const fabricMatch = f.match(/fabric-server-mc\.([0-9a-zA-Z.-]+)-loader/);
+      if (fabricMatch && fabricMatch[1]) {
+        return fabricMatch[1];
+      }
+      const paperMatch = f.match(/paper-([0-9.]+)-/);
+      if (paperMatch && paperMatch[1]) {
+        return paperMatch[1];
+      }
+      const purpurMatch = f.match(/purpur-([0-9.]+)-/);
+      if (purpurMatch && purpurMatch[1]) {
+        return purpurMatch[1];
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Check logs/latest.log
+  const logPath = safepath.resolve(serverDir, 'logs', 'latest.log');
+  if (fs.existsSync(logPath)) {
+    try {
+      const logContent = fs.readFileSync(logPath, 'utf8').slice(0, 8192);
+      const logMatch =
+        logContent.match(/Loading Minecraft ([0-9a-zA-Z.-]+)/i) ||
+        logContent.match(/Starting minecraft server version ([0-9a-zA-Z.-]+)/i);
+      if (logMatch && logMatch[1]) {
+        return logMatch[1];
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
 export function getModsDirectory(serverId: string, templateId: string): string {
   const serverDir = getServerDataDir(serverId);
   const folderName = getAddonsFolder(templateId);
@@ -167,4 +224,41 @@ export async function deleteMod(
   }
 
   await fs.promises.unlink(filePath);
+}
+
+export async function saveUploadedMod(
+  serverId: string,
+  templateId: string,
+  rawFilename: string,
+  contentBase64: string,
+): Promise<{ filename: string; sizeBytes: number }> {
+  let filename = path.basename(rawFilename).replace(/[^a-zA-Z0-9_\-.+]/g, '_');
+  if (!filename.endsWith('.jar') && !filename.endsWith('.jar.disabled')) {
+    filename += '.jar';
+  }
+
+  const modsDir = getModsDirectory(serverId, templateId);
+  const targetPath = safepath.resolve(modsDir, filename);
+
+  const buffer = Buffer.from(contentBase64, 'base64');
+  if (buffer.length === 0) {
+    const error = new Error('Uploaded file is empty.');
+    (error as Error & { code: string; statusCode: number }).code = 'EMPTY_FILE';
+    (error as Error & { statusCode: number }).statusCode = 400;
+    throw error;
+  }
+
+  if (buffer.length > 150 * 1024 * 1024) {
+    const error = new Error('File exceeds maximum allowed size of 150 MB.');
+    (error as Error & { code: string; statusCode: number }).code = 'FILE_TOO_LARGE';
+    (error as Error & { statusCode: number }).statusCode = 400;
+    throw error;
+  }
+
+  await fs.promises.writeFile(targetPath, buffer);
+
+  return {
+    filename,
+    sizeBytes: buffer.length,
+  };
 }
