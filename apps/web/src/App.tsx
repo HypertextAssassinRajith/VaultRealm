@@ -19,7 +19,13 @@ export function AppContent() {
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [servers, setServers] = useState<ServerDetail[]>([]);
   const [capacity, setCapacity] = useState<CapacityStatus | null>(null);
-  const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
+  const [selectedServerId, setSelectedServerId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('vr_selected_server');
+    } catch {
+      return null;
+    }
+  });
   const [showDeployWizard, setShowDeployWizard] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -64,11 +70,28 @@ export function AppContent() {
     void init();
   }, []);
 
+  useEffect(() => {
+    try {
+      if (selectedServerId) {
+        sessionStorage.setItem('vr_selected_server', selectedServerId);
+      } else {
+        sessionStorage.removeItem('vr_selected_server');
+      }
+    } catch {
+      // ignore
+    }
+  }, [selectedServerId]);
+
   const handleLogout = async () => {
     try {
       await api.logout();
       setCurrentUser(null);
       setSelectedServerId(null);
+      try {
+        sessionStorage.removeItem('vr_selected_server');
+      } catch {
+        // ignore
+      }
       setShowAdmin(false);
       addToast({ type: 'info', title: 'Signed out.' });
     } catch {

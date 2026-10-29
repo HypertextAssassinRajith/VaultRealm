@@ -20,9 +20,21 @@ interface ServerViewProps {
   onDelete: () => void;
 }
 
+type ServerTab = 'overview' | 'console' | 'players' | 'mods' | 'debug' | 'companion' | 'settings';
+
 export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const [server, setServer] = useState<ServerDetail | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'console' | 'players' | 'mods' | 'debug' | 'companion' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<ServerTab>(() => {
+    try {
+      const saved = sessionStorage.getItem(`vr_tab_${serverId}`);
+      if (saved && ['overview', 'console', 'players', 'mods', 'debug', 'companion', 'settings'].includes(saved)) {
+        return saved as ServerTab;
+      }
+    } catch {
+      // ignore
+    }
+    return 'overview';
+  });
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [commandInput, setCommandInput] = useState('');
   const [findings, setFindings] = useState<DiagnosisFinding[]>([]);
@@ -32,9 +44,20 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
   const lastStatsRef = useRef<{ time: number; rx: number; tx: number } | null>(null);
 
+  const consoleContainerRef = useRef<HTMLDivElement>(null);
   const consoleBottomRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const isInitialLoadRef = useRef(true);
   const { addToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`vr_tab_${serverId}`, activeTab);
+    } catch {
+      // ignore
+    }
+  }, [activeTab, serverId]);
 
   const fetchServer = async () => {
     try {
@@ -158,9 +181,62 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
     };
   }, [serverId]);
 
+  const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
+    const container = consoleContainerRef.current;
+    if (!container) return;
+    if (behavior === 'auto') {
+      container.scrollTop = container.scrollHeight;
+    } else {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  };
+
+  const handleConsoleScroll = () => {
+    const container = consoleContainerRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight <= 60;
+    setAutoScroll(isAtBottom);
+  };
+
+  // Scroll to bottom when switching to console tab or when mounted
   useEffect(() => {
-    consoleBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [consoleLogs]);
+    if (activeTab === 'console') {
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
+      const timer = setTimeout(() => {
+        scrollToBottom('auto');
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab]);
+
+  // Scroll to new line when consoleLogs update
+  useEffect(() => {
+    if (activeTab !== 'console') return;
+    if (!consoleContainerRef.current) return;
+
+    if (isInitialLoadRef.current) {
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
+      if (consoleLogs.length > 0) {
+        const timer = setTimeout(() => {
+          isInitialLoadRef.current = false;
+          scrollToBottom('auto');
+        }, 120);
+        return () => clearTimeout(timer);
+      }
+    } else if (autoScroll) {
+      requestAnimationFrame(() => {
+        scrollToBottom('smooth');
+      });
+    }
+  }, [consoleLogs, activeTab, autoScroll]);
 
   const handlePowerAction = async (action: 'start' | 'stop' | 'restart' | 'kill') => {
     setLoadingAction(action);
@@ -187,10 +263,17 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
     const cmd = commandInput;
     setCommandInput('');
     setConsoleLogs((prev) => [...prev, `$ ${cmd}`]);
+    setAutoScroll(true);
+    requestAnimationFrame(() => {
+      scrollToBottom('auto');
+    });
 
     try {
       const res = await api.sendCommand(serverId, cmd);
       setConsoleLogs((prev) => [...prev, res.output]);
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
     } catch (err) {
       const error = err as ApiError;
       addToast({ type: 'error', title: 'Command failed', message: error.message });
@@ -399,7 +482,7 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
 
       {/* Tab: Console */}
       {activeTab === 'console' && (
-        <div className="card overflow-hidden flex flex-col h-[540px] bg-black/95 shadow-xl">
+        <div className="card overflow-hidden flex flex-col h-[540px] bg-black/95 shadow-xl relative">
           <div className="px-4 py-3 bg-card-subtle border-b border-border flex items-center justify-between text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <span className="flex gap-1.5">
@@ -409,14 +492,37 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
               </span>
               <span className="font-mono text-[11px] text-muted-foreground ml-2">Live Terminal • {server.name}</span>
             </div>
-            <button
-              onClick={() => setConsoleLogs([])}
-              className="btn btn-ghost btn-sm text-[11px] py-1 px-2"
-            >
-              Clear Buffer
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !autoScroll;
+                  setAutoScroll(next);
+                  if (next) scrollToBottom('auto');
+                }}
+                className={`btn btn-sm text-[11px] py-1 px-2.5 transition-colors flex items-center gap-1.5 ${
+                  autoScroll
+                    ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'
+                    : 'text-amber-400 bg-amber-950/40 border border-amber-500/30'
+                }`}
+                title={autoScroll ? 'Auto-scroll is active (click to pause)' : 'Auto-scroll paused (click to resume)'}
+              >
+                <span className={`inline-block w-1.5 h-1.5 rounded-full ${autoScroll ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span>{autoScroll ? 'Auto-scroll: ON' : 'Auto-scroll: PAUSED'}</span>
+              </button>
+              <button
+                onClick={() => setConsoleLogs([])}
+                className="btn btn-ghost btn-sm text-[11px] py-1 px-2"
+              >
+                Clear Buffer
+              </button>
+            </div>
           </div>
-          <div className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1">
+          <div
+            ref={consoleContainerRef}
+            onScroll={handleConsoleScroll}
+            className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 relative"
+          >
             {consoleLogs.length === 0 ? (
               server.status === 'pulling' ? (
                 <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground my-auto h-full">
@@ -472,6 +578,19 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
               ))
             )}
             <div ref={consoleBottomRef} />
+            {!autoScroll && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAutoScroll(true);
+                  scrollToBottom('auto');
+                }}
+                className="sticky bottom-2 float-right mr-2 bg-primary text-primary-foreground text-xs py-1 px-3 rounded-full shadow-lg flex items-center gap-1.5 hover:opacity-90 transition-all font-sans font-semibold border border-primary-foreground/20 animate-bounce cursor-pointer z-10"
+              >
+                <span>↓</span>
+                <span>Jump to bottom</span>
+              </button>
+            )}
           </div>
           <form onSubmit={handleSendCommand} className="p-3 border-t border-border bg-card-subtle flex gap-2">
             <input
