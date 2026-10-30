@@ -154,17 +154,21 @@ export class CompanionBotRunner {
       }, 1000);
     });
 
-    bot.on('kicked', (reason: string) => {
-      console.warn(`[BotRunner] Bot was kicked: ${reason}`);
+    bot.on('kicked', (reason: unknown) => {
+      const reasonStr = typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
+      console.warn(`[BotRunner] Bot was kicked: ${reasonStr}`);
+      if (reasonStr.includes('unverified_username')) {
+        console.warn(
+          '[BotRunner] ⚠️ Authentication Error: The server has "online-mode=true". ' +
+            'Because Buddy is in offline mode, set "online-mode = false" in the server "Properties" tab and restart the server, or switch Buddy to Microsoft authentication.',
+        );
+      }
       this.scheduleReconnect();
     });
 
-    bot.on('error', (err: Error) => {
-      console.error('[BotRunner] Bot error:', err.message);
-    });
-
-    bot.on('end', () => {
-      console.log('[BotRunner] Connection ended.');
+    bot.on('end', (reason?: unknown) => {
+      const reasonStr = reason ? ` (${typeof reason === 'object' ? JSON.stringify(reason) : String(reason)})` : '';
+      console.log(`[BotRunner] Connection ended${reasonStr}.`);
       if (this.isRunning) {
         this.scheduleReconnect();
       }

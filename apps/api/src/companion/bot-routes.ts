@@ -263,6 +263,14 @@ export async function botRoutes(app: FastifyInstance): Promise<void> {
           OWNER_NAME: ownerName,
           WHO_CAN_COMMAND: bot.whoCanCommand === 'owner' || bot.whoCanCommand === 'owner_only' ? 'owner_only' : bot.whoCanCommand === 'trusted' ? 'trusted' : 'everyone',
           PROTECTED_ZONES_JSON: bot.protectedZonesJson || '[]',
+          MINECRAFT_VERSION: (() => {
+            try {
+              const envMap = JSON.parse(server.envJson || '{}');
+              return envMap.VERSION && envMap.VERSION !== 'LATEST' ? envMap.VERSION : '';
+            } catch {
+              return '';
+            }
+          })(),
         },
         ports: [],
         volumes: [],

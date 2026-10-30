@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import { CompanionBotRunner } from './bot.js';
 import type { BotConfig } from './types.js';
+import { setupVersionCompatibility } from './version-compat.js';
 
 const envSchema = z.object({
   BOT_ID: z.string().min(1, 'BOT_ID is required'),
@@ -31,6 +32,7 @@ const envSchema = z.object({
 
 function main() {
   console.log('[BotRunner] Starting VaultRealm AI Companion...');
+  setupVersionCompatibility();
 
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
