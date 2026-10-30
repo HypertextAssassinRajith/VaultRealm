@@ -766,12 +766,22 @@ docker compose up -d
 
 ### CI/CD (GitHub Actions)
 
-The workflow at [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml) automatically:
+VaultRealm includes automated container build and publication pipelines:
 
-- **On push to `main`** → builds and pushes `ghcr.io/hypertextassassinrajith/vaultrealm:latest`
-- **On version tag `v*.*.*`** → pushes semver-tagged images (`1.2.3`, `1.2`, `1`)
-- **On PRs** → builds to validate (no push)
-- Uses GitHub Actions build cache for fast rebuilds
+1. **Docker Hub Publishing** ([`.github/workflows/docker-image.yml`](../.github/workflows/docker-image.yml)):
+   - Builds and pushes **VaultRealm** (`hypertextassassin/vaultrealm`)
+   - Builds and pushes **AI Companion Bot Runner** (`hypertextassassin/vaultrealm-bot-runner` & `hypertextassassin/bot-runner`)
+   - Multi-platform support: `linux/amd64` and `linux/arm64`
+
+2. **GitHub Container Registry (GHCR)** ([`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml)):
+   - Publishes `ghcr.io/hypertextassassinrajith/vaultrealm` and `ghcr.io/hypertextassassinrajith/vaultrealm-bot-runner`
+   - Generates provenance attestations
+
+**Triggers & Tags**:
+- **On push to `master`** → builds and pushes `:edge` and updates `:latest`
+- **On version tag `v*`** (e.g. `v0.1.0`) → builds and pushes semver tags (`0.1.0`, `0.1`, `latest`)
+- **On PRs to `master`** → builds images to validate compilation without pushing
+- Isolated GitHub Actions cache (`type=gha`) per component for fast builds
 
 ---
 

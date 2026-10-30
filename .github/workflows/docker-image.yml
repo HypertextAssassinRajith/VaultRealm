@@ -1,35 +1,45 @@
-name: Publish Docker image
+name: Publish Docker images to Docker Hub
 
-# How tags work:
-#   push to master      -> hypertextassassin/vaultrealm:edge        (latest development build)
-#   git tag v0.1.0      -> :0.1.0, :0.1 and :latest                 (a real release)
+# Triggers:
+#   push to master  -> hypertextassassin/vaultrealm:edge & :latest
+#                      hypertextassassin/vaultrealm-bot-runner:edge & :latest
+#   git tag v*      -> :0.1.0, :0.1, :1, and :latest
+#   PR to master    -> build validation only (push: false)
 on:
   push:
     branches: [master]
-    tags: ["v*.*.*"]
+    tags:
+      - "v*"
+      - "v*.*.*"
   pull_request:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 env:
-  IMAGE: hypertextassassin/vaultrealm
+  REALM_IMAGE: hypertextassassin/vaultrealm
+  BOT_IMAGE: hypertextassassin/vaultrealm-bot-runner
+  BOT_ALT_IMAGE: hypertextassassin/bot-runner
 
 jobs:
-  docker:
+  # ── Job 1: Build & Push Panel / Realm Image ──────────────────────────────────
+  realm:
+    name: Build & Push Realm Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up QEMU (for arm64 builds)
         uses: docker/setup-qemu-action@v3
 
-      - name: Set up Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -39,31 +49,103 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE }}
+          images: ${{ env.REALM_IMAGE }}
           flavor: latest=false
           tags: |
             type=edge,branch=master
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=VaultRealm
+            org.opencontainers.image.description=Self-hosted game server control panel
+            org.opencontainers.image.vendor=HypertextAssassinRajith
 
-      - name: Build and push
+      - name: Build and push Realm image
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          # Remove linux/arm64 if your VPS is x86 only; it makes builds faster
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=realm
+          cache-to: type=gha,mode=max,scope=realm
 
-      # Docker Hub lists tags by push time, and tags pushed together tie.
-      # Re-pushing :latest last makes it the newest tag in the list.
+      # Re-pushing :latest last ensures it is at the top of the Docker Hub tag list
       - name: Move latest to the top of the tag list
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v') && steps.meta.outputs.version != ''
         run: |
           docker buildx imagetools create \
-            -t ${{ env.IMAGE }}:latest \
-            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+            -t ${{ env.REALM_IMAGE }}:latest \
+            ${{ env.REALM_IMAGE }}:${{ steps.meta.outputs.version }}
+
+  # ── Job 2: Build & Push Companion Bot Runner Image ───────────────────────────
+  bot:
+    name: Build & Push Bot Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for arm64 builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.BOT_IMAGE }}
+            ${{ env.BOT_ALT_IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=edge,branch=master
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=VaultRealm Bot Runner
+            org.opencontainers.image.description=Autonomous AI Companion Bot Runner for Minecraft servers
+            org.opencontainers.image.vendor=HypertextAssassinRajith
+
+      - name: Build and push Bot image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/bot-runner/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=bot
+          cache-to: type=gha,mode=max,scope=bot
+
+      # Re-pushing :latest last ensures it is at the top of the Docker Hub tag list
+      - name: Move latest to the top of the tag list
+        if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v') && steps.meta.outputs.version != ''
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.BOT_IMAGE }}:latest \
+            ${{ env.BOT_IMAGE }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools create \
+            -t ${{ env.BOT_ALT_IMAGE }}:latest \
+            ${{ env.BOT_ALT_IMAGE }}:${{ steps.meta.outputs.version }}
