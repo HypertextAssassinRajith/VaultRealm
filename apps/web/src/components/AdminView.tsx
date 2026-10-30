@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
-import { api, type CapacityStatus, type ApiError } from '../api/client';
+import {
+  api,
+  downloadWithAuth,
+  type CapacityStatus,
+  type PublicGoogleDriveConfig,
+  type SystemBackupDetail,
+  type ApiError,
+} from '../api/client';
 import { useToast } from './Toast';
+import { GoogleDriveConfigModal } from './GoogleDriveConfigModal';
 
 interface AdminViewProps {
   onBack: () => void;
@@ -12,16 +20,33 @@ export function AdminView({ onBack }: AdminViewProps) {
   const [maxUses, setMaxUses] = useState(10);
   const [creating, setCreating] = useState(false);
 
+  // Google Drive & System Backups
+  const [gdriveConfig, setGdriveConfig] = useState<PublicGoogleDriveConfig | null>(null);
+  const [systemBackups, setSystemBackups] = useState<SystemBackupDetail[]>([]);
+  const [showGdriveModal, setShowGdriveModal] = useState(false);
+  const [creatingSystemBackup, setCreatingSystemBackup] = useState(false);
+  const [systemUploadToDrive, setSystemUploadToDrive] = useState(false);
+
   const { addToast } = useToast();
 
   const loadData = async () => {
     try {
-      const [invitesData, capacityData] = await Promise.all([
+      const [invitesData, capacityData, driveData, systemBackupsData] = await Promise.allSettled([
         api.listInvites(),
         api.getCapacity(),
+        api.getGoogleDriveConfig(),
+        api.listSystemBackups(),
       ]);
-      setInvites(invitesData);
-      setCapacity(capacityData);
+
+      if (invitesData.status === 'fulfilled') setInvites(invitesData.value);
+      if (capacityData.status === 'fulfilled') setCapacity(capacityData.value);
+      if (driveData.status === 'fulfilled') {
+        setGdriveConfig(driveData.value);
+        if (driveData.value.configured) {
+          setSystemUploadToDrive(true);
+        }
+      }
+      if (systemBackupsData.status === 'fulfilled') setSystemBackups(systemBackupsData.value.backups);
     } catch (err) {
       console.error(err);
     }
@@ -56,6 +81,53 @@ export function AdminView({ onBack }: AdminViewProps) {
     }
   };
 
+  const handleCreateSystemBackup = async () => {
+    setCreatingSystemBackup(true);
+    try {
+      const b = await api.createSystemBackup({ uploadToDrive: systemUploadToDrive });
+      addToast({
+        type: 'success',
+        title: 'Full System Snapshot Created!',
+        message: b.gdriveFileId
+          ? 'Database & configurations backed up and uploaded to Google Drive.'
+          : 'Database & configurations safely archived locally.',
+      });
+      await loadData();
+    } catch (err) {
+      const error = err as ApiError;
+      addToast({
+        type: 'error',
+        title: 'System backup failed',
+        message: error.message || 'Could not archive system state.',
+      });
+    } finally {
+      setCreatingSystemBackup(false);
+    }
+  };
+
+  const handleDownloadSystemBackup = async (filename: string) => {
+    try {
+      addToast({ type: 'info', title: 'Starting system backup download...' });
+      const url = api.getSystemBackupDownloadUrl(filename);
+      await downloadWithAuth(url, filename);
+    } catch (err) {
+      const error = err as Error;
+      addToast({
+        type: 'error',
+        title: 'Download failed',
+        message: error.message || 'Could not download system snapshot.',
+      });
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between border-b border-border pb-4">
@@ -68,7 +140,7 @@ export function AdminView({ onBack }: AdminViewProps) {
           </button>
           <div>
             <h1 className="text-xl font-bold text-foreground">Admin Control Plane</h1>
-            <p className="text-xs text-muted-foreground">Manage registration invites and host capacity</p>
+            <p className="text-xs text-muted-foreground">Manage registration invites, host capacity, Google Drive sync, and disaster recovery</p>
           </div>
         </div>
       </div>
@@ -175,6 +247,132 @@ export function AdminView({ onBack }: AdminViewProps) {
           </div>
         </div>
       </div>
+
+      {/* Disaster Recovery & Google Drive Cloud Storage */}
+      <div className="card p-6 border border-border/80 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-base font-bold text-foreground">Disaster Recovery & Google Drive Cloud Storage</h2>
+              {gdriveConfig?.configured ? (
+                <span className="badge badge-success text-[10px] py-0 px-2 flex items-center gap-1">
+                  <span>☁️</span>
+                  <span>Drive Connected</span>
+                </span>
+              ) : (
+                <span className="badge badge-neutral text-[10px] py-0 px-2 text-muted-foreground">
+                  ☁️ Drive Not Configured
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Automated off-site disaster recovery. Snapshot the SQLite database, server metadata, and configs with 1-click Google Drive sync.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowGdriveModal(true)}
+              className="btn btn-secondary text-xs py-2 px-3.5 flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>⚙️</span>
+              <span>{gdriveConfig?.configured ? 'Manage Google Drive' : 'Connect Google Drive'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Snapshot trigger card */}
+        <div className="p-4 rounded-xl bg-card-subtle border border-border/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-xs font-bold text-foreground">Full Panel Database Snapshot</h3>
+            <p className="text-[11px] text-muted-foreground">
+              Archives <code>panel.db</code>, SQLite WAL/SHM journaling state, and panel configuration files into a self-contained disaster recovery archive.
+            </p>
+            {gdriveConfig?.configured && (
+              <label className="flex items-center gap-2 cursor-pointer pt-1 text-xs">
+                <input
+                  type="checkbox"
+                  checked={systemUploadToDrive}
+                  onChange={(e) => setSystemUploadToDrive(e.target.checked)}
+                  className="rounded border-border"
+                />
+                <span className="text-zinc-300">Sync snapshot directly to Google Drive</span>
+              </label>
+            )}
+          </div>
+
+          <button
+            onClick={handleCreateSystemBackup}
+            disabled={creatingSystemBackup}
+            className="btn btn-primary text-xs py-2.5 px-4 font-bold flex items-center gap-2 cursor-pointer shadow-md shadow-primary/20 shrink-0"
+          >
+            {creatingSystemBackup ? <span className="animate-spin text-xs">⟳</span> : <span>💾</span>}
+            <span>{creatingSystemBackup ? 'Archiving System...' : 'Create Full System Backup'}</span>
+          </button>
+        </div>
+
+        {/* System Backups List */}
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold text-foreground">System Snapshots</h3>
+          {systemBackups.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic py-3">No system disaster recovery snapshots created yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {systemBackups.map((sb) => (
+                <div
+                  key={sb.filename}
+                  className="p-3 rounded-lg border border-border bg-card flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-bold text-foreground truncate">{sb.filename}</span>
+                      <span className="badge badge-neutral text-[10px] py-0 px-1.5 font-mono">
+                        {formatBytes(sb.sizeBytes)}
+                      </span>
+                      {sb.gdriveFileId ? (
+                        <span className="badge badge-success text-[10px] py-0 px-1.5">☁️ Synced to Drive</span>
+                      ) : (
+                        <span className="badge badge-neutral text-[10px] py-0 px-1.5 text-muted-foreground">Local Only</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground font-mono">
+                      Created: {new Date(sb.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {sb.gdriveWebLink && (
+                      <a
+                        href={sb.gdriveWebLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn-secondary btn-sm text-[11px] py-1 px-2.5 flex items-center gap-1"
+                      >
+                        <span>Drive</span>
+                        <span>↗</span>
+                      </a>
+                    )}
+                    <button
+                      onClick={() => handleDownloadSystemBackup(sb.filename)}
+                      className="btn btn-primary btn-sm text-[11px] py-1 px-3 flex items-center gap-1 font-semibold cursor-pointer"
+                    >
+                      <span>⬇️</span>
+                      <span>Download</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Google Drive Configuration Modal */}
+      <GoogleDriveConfigModal
+        open={showGdriveModal}
+        onClose={() => setShowGdriveModal(false)}
+        onSaved={() => void loadData()}
+      />
     </div>
   );
 }

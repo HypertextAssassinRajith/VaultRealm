@@ -14,6 +14,7 @@ import { ServerMetrics, type MetricSnapshot } from './ServerMetrics';
 import { ServerModsTab } from './ServerModsTab';
 import { ServerPlayersTab } from './ServerPlayersTab';
 import { ServerPropertiesTab } from './ServerPropertiesTab';
+import { ServerBackupsTab } from './ServerBackupsTab';
 
 interface ServerViewProps {
   serverId: string;
@@ -21,14 +22,14 @@ interface ServerViewProps {
   onDelete: () => void;
 }
 
-type ServerTab = 'overview' | 'console' | 'players' | 'mods' | 'properties' | 'debug' | 'companion' | 'settings';
+type ServerTab = 'overview' | 'console' | 'players' | 'mods' | 'properties' | 'backups' | 'debug' | 'companion' | 'settings';
 
 export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
   const [server, setServer] = useState<ServerDetail | null>(null);
   const [activeTab, setActiveTab] = useState<ServerTab>(() => {
     try {
       const saved = sessionStorage.getItem(`vr_tab_${serverId}`);
-      if (saved && ['overview', 'console', 'players', 'mods', 'properties', 'debug', 'companion', 'settings'].includes(saved)) {
+      if (saved && ['overview', 'console', 'players', 'mods', 'properties', 'backups', 'debug', 'companion', 'settings'].includes(saved)) {
         return saved as ServerTab;
       }
     } catch {
@@ -448,6 +449,7 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
           { id: 'players', label: 'Players & Bans', icon: '👥' },
           { id: 'mods', label: 'Mods & Addons', icon: '🧩' },
           { id: 'properties', label: 'Properties', icon: '⚙️' },
+          { id: 'backups', label: 'Backups', icon: '💾' },
           { id: 'debug', label: 'Auto-Diagnosis', icon: '🔍' },
           { id: 'companion', label: 'AI Companion', icon: '🤖' },
           { id: 'settings', label: 'Settings', icon: '🔧' },
@@ -749,6 +751,15 @@ export function ServerView({ serverId, onBack, onDelete }: ServerViewProps) {
       {/* Tab: Companion */}
       {activeTab === 'companion' && (
         <CompanionTab serverId={serverId} />
+      )}
+
+      {/* Tab: Backups */}
+      {activeTab === 'backups' && (
+        <ServerBackupsTab
+          serverId={serverId}
+          serverStatus={server.status}
+          isMinecraft={server.templateId.includes('minecraft')}
+        />
       )}
 
       {/* Tab: Settings */}
