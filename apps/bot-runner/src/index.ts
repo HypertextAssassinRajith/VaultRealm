@@ -19,7 +19,11 @@ const envSchema = z.object({
   MINECRAFT_VERSION: z.string().optional(),
   OWNER_NAME: z.string().default('admin'),
   TRUSTED_PLAYERS: z.string().optional(),
-  WHO_CAN_COMMAND: z.enum(['owner_only', 'trusted', 'everyone']).default('everyone'),
+  WHO_CAN_COMMAND: z
+    .string()
+    .default('owner_only')
+    .transform((val) => (val === 'owner' ? 'owner_only' : val))
+    .pipe(z.enum(['owner_only', 'trusted', 'everyone'])),
   PROTECTED_ZONES_JSON: z.string().optional(),
   SAVED_PLACES_JSON: z.string().optional(),
   USE_JSON_FALLBACK: z.coerce.boolean().default(false),

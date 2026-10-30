@@ -28,7 +28,7 @@ const updateBotSchema = z.object({
   model: z.string().max(100).optional().nullable(),
   mode: z.enum(['off', 'manual', 'auto-solo', 'always']).default('manual'),
   authMode: z.enum(['offline', 'microsoft', 'proxy']).default('offline'),
-  whoCanCommand: z.string().default('owner'),
+  whoCanCommand: z.string().default('owner_only'),
   dailyTokenBudget: z.number().int().min(1000).max(10_000_000).default(200_000),
   rpmLimit: z.number().int().min(1).max(120).default(10),
   proactive: z.boolean().default(false),
@@ -55,6 +55,31 @@ export async function botRoutes(app: FastifyInstance): Promise<void> {
 
     if (!existing) {
       return reply.send({ configured: false, bot: null });
+    }
+
+    if (existing.containerId && (existing.status === 'joining' || existing.status === 'online')) {
+      try {
+        const driver = getDockerDriver();
+        const inspect = await driver.inspectContainer(existing.containerId);
+        if (!inspect.state.running) {
+          const newStatus = inspect.state.exitCode !== 0 ? 'error' : 'offline';
+          const errMsg =
+            inspect.state.error ||
+            (inspect.state.exitCode !== 0 ? `Bot container exited with code ${inspect.state.exitCode}` : null);
+          db.update(bots)
+            .set({ status: newStatus, errorMessage: errMsg })
+            .where(eq(bots.id, existing.id))
+            .run();
+          existing.status = newStatus;
+          existing.errorMessage = errMsg;
+        }
+      } catch {
+        db.update(bots)
+          .set({ status: 'offline' })
+          .where(eq(bots.id, existing.id))
+          .run();
+        existing.status = 'offline';
+      }
     }
 
     return reply.send({
@@ -200,11 +225,12 @@ export async function botRoutes(app: FastifyInstance): Promise<void> {
     // Retrieve server ports to find game port
     const ports = db.select().from(serverPorts).where(eq(serverPorts.serverId, serverId)).all();
     const gamePortEntry = ports.find((p) => p.name === 'game' || p.containerPort === 25565) ?? ports[0];
-    const serverPort = gamePortEntry ? gamePortEntry.containerPort : 25565;
+    const driver = getDockerDriver();
+    const config = getConfig();
+    const serverPort = driver.isMock ? (gamePortEntry ? gamePortEntry.containerPort : 25565) : (gamePortEntry ? gamePortEntry.hostPort : 25565);
+    const serverHost = driver.isMock ? (server.containerId || 'localhost') : 'host.docker.internal';
 
     const token = createBotToken(bot.id, 86400); // 24h token
-    const config = getConfig();
-    const driver = getDockerDriver();
 
     try {
       // Clean up any stale container if exists
@@ -228,14 +254,14 @@ export async function botRoutes(app: FastifyInstance): Promise<void> {
           BOT_ID: bot.id,
           BOT_NAME: bot.name,
           SERVER_ID: serverId,
-          SERVER_HOST: server.containerId || 'localhost',
+          SERVER_HOST: serverHost,
           SERVER_PORT: String(serverPort),
           AUTH_MODE: bot.authMode,
           PERSONA: bot.persona,
           PANEL_GATEWAY_URL: config.PANEL_GATEWAY_URL,
           BOT_TOKEN: token,
           OWNER_NAME: ownerName,
-          WHO_CAN_COMMAND: bot.whoCanCommand,
+          WHO_CAN_COMMAND: bot.whoCanCommand === 'owner' || bot.whoCanCommand === 'owner_only' ? 'owner_only' : bot.whoCanCommand === 'trusted' ? 'trusted' : 'everyone',
           PROTECTED_ZONES_JSON: bot.protectedZonesJson || '[]',
         },
         ports: [],
@@ -386,6 +412,40 @@ export async function botRoutes(app: FastifyInstance): Promise<void> {
       executedAt: new Date().toISOString(),
     });
   });
+
+  // ── GET /api/servers/:id/companion/bot/logs — container logs ─────────────
+  app.get<{ Params: { id: string }; Querystring: { tail?: string } }>(
+    '/api/servers/:id/companion/bot/logs',
+    async (request, reply) => {
+      const user = getRequestUser(request);
+      const { id: serverId } = request.params;
+      await assertCan(user, 'companion:view', serverId);
+
+      const db = getDatabase();
+      const bot = db.select().from(bots).where(eq(bots.serverId, serverId)).all()[0];
+      if (!bot) {
+        return reply.status(404).send({ code: 'BOT_NOT_FOUND', message: 'No companion bot configured.' });
+      }
+
+      if (!bot.containerId) {
+        return reply.send({ logs: [], containerRunning: false });
+      }
+
+      const driver = getDockerDriver();
+      const tail = request.query.tail ? parseInt(request.query.tail, 10) : 200;
+
+      try {
+        const logs = await driver.getContainerLogs(bot.containerId, tail);
+        return reply.send({ logs, containerRunning: bot.status === 'online' || bot.status === 'joining' });
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return reply.send({
+          logs: [`[VaultRealm] Unable to read container logs: ${errMsg}`],
+          containerRunning: false,
+        });
+      }
+    },
+  );
 
   // ── GET /api/servers/:id/companion/bot/usage — daily tokens & budget ──────
   app.get<{ Params: { id: string } }>('/api/servers/:id/companion/bot/usage', async (request, reply) => {

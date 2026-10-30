@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   api,
   type LlmEndpoint,
@@ -45,7 +45,36 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
   const [sayInput, setSayInput] = useState('');
 
   // Phase 6d sub-tabs & traces & device-code state
-  const [activeSubTab, setActiveSubTab] = useState<'control' | 'usage' | 'traces' | 'endpoints'>('control');
+  const [activeSubTab, setActiveSubTab] = useState<'control' | 'usage' | 'traces' | 'endpoints' | 'logs'>('control');
+  const [botLogs, setBotLogs] = useState<string[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [autoScrollLogs, setAutoScrollLogs] = useState(true);
+  const botLogsContainerRef = useRef<HTMLDivElement>(null);
+
+  const fetchBotLogs = async () => {
+    try {
+      setLoadingLogs(true);
+      const res = await api.getBotLogs(serverId, 300);
+      setBotLogs(res.logs || []);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSubTab !== 'logs') return;
+    void fetchBotLogs();
+    const interval = setInterval(fetchBotLogs, 2000);
+    return () => clearInterval(interval);
+  }, [activeSubTab, serverId]);
+
+  useEffect(() => {
+    if (autoScrollLogs && botLogsContainerRef.current) {
+      botLogsContainerRef.current.scrollTop = botLogsContainerRef.current.scrollHeight;
+    }
+  }, [botLogs, autoScrollLogs]);
   const [traces, setTraces] = useState<CompanionTrace[]>([]);
   const [loadingTraces, setLoadingTraces] = useState(false);
   const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
@@ -450,18 +479,37 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
 
       {/* ── Sub-Navigation Tabs ── */}
       <div className="no-scrollbar touch-scroll" style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+        {bot?.errorMessage && (
+          <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '0.8125rem', color: '#fca5a5' }}>
+              <strong>Companion Status:</strong> {bot.errorMessage}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSubTab('logs');
+                void fetchBotLogs();
+              }}
+              style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600, background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '6px', color: '#fee2e2', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              View Bot Logs 📜
+            </button>
+          </div>
+        )}
         {[
           { id: 'control', label: '🎮 Controls & Setup' },
           { id: 'usage', label: '📊 Usage & Budget' },
           { id: 'traces', label: '🔍 Activity & Traces' },
+          { id: 'logs', label: `📜 Bot Live Logs${bot?.status === 'error' ? ' ⚠️' : ''}` },
           { id: 'endpoints', label: `⚡ AI Endpoints (${endpoints.length})` },
         ].map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => {
-              setActiveSubTab(tab.id as 'control' | 'usage' | 'traces' | 'endpoints');
+              setActiveSubTab(tab.id as 'control' | 'usage' | 'traces' | 'endpoints' | 'logs');
               if (tab.id === 'traces') loadTraces();
+              if (tab.id === 'logs') void fetchBotLogs();
             }}
             style={{
               background: activeSubTab === tab.id ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
@@ -1557,6 +1605,110 @@ export function CompanionTab({ serverId }: CompanionTabProps) {
           </div>
         </div>
       </div>
+      )}
+
+      {/* ── Bot Live Logs Sub-Tab ── */}
+      {activeSubTab === 'logs' && (
+        <div style={{ background: '#121624', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '14px', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '1.25rem' }}>📜</span>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: '#f8fafc' }}>
+                  Live Companion Bot Runner Logs
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Real-time stdout/stderr output from the companion bot container
+                </p>
+              </div>
+              {bot?.containerId && (
+                <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', background: 'rgba(255, 255, 255, 0.05)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255, 255, 255, 0.1)', color: '#cbd5e1' }}>
+                  {bot.containerId.slice(0, 12)}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#94a3b8', cursor: 'pointer', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={autoScrollLogs}
+                  onChange={(e) => setAutoScrollLogs(e.target.checked)}
+                  style={{ accentColor: '#6366f1' }}
+                />
+                Auto-scroll
+              </label>
+              <button
+                type="button"
+                onClick={fetchBotLogs}
+                disabled={loadingLogs}
+                style={{
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                  color: '#818cf8',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: loadingLogs ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span>🔄</span>
+                <span>{loadingLogs ? 'Loading...' : 'Refresh Logs'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div
+            ref={botLogsContainerRef}
+            style={{
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              fontSize: '0.75rem',
+              background: '#090d16',
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+              borderRadius: '8px',
+              padding: '14px',
+              height: '460px',
+              overflowY: 'auto',
+              color: '#e2e8f0',
+              lineHeight: '1.6',
+              boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.5)',
+              userSelect: 'text',
+            }}
+          >
+            {botLogs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
+                <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>💬</div>
+                <p style={{ margin: 0 }}>No bot logs recorded yet.</p>
+                <p style={{ margin: '4px 0 0', fontSize: '0.75rem' }}>
+                  Click "Spawn Bot Into Server" in the Controls tab to run the companion container.
+                </p>
+              </div>
+            ) : (
+              botLogs.map((line, idx) => {
+                const isError = line.toLowerCase().includes('error') || line.includes('Invalid') || line.includes('failed');
+                const isWarn = line.toLowerCase().includes('warn');
+                const isSuccess = line.includes('successfully spawned') || line.includes('ready') || line.includes('connected');
+                const isBot = line.includes('[BotRunner]');
+
+                let color = '#cbd5e1';
+                if (isError) color = '#f87171';
+                else if (isWarn) color = '#fbbf24';
+                else if (isSuccess) color = '#4ade80';
+                else if (isBot) color = '#38bdf8';
+
+                return (
+                  <div key={idx} style={{ color, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {line}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Microsoft Device Code Modal ── */}

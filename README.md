@@ -56,6 +56,8 @@ pnpm test       # Run all tests (125+)
 pnpm typecheck  # TypeScript type checking
 pnpm lint       # ESLint
 pnpm build      # Production build
+pnpm docker:build     # Build panel Docker image
+pnpm docker:build:bot # Build companion bot Docker image
 ```
 
 ## Documentation

@@ -113,6 +113,8 @@ export interface DockerEvent {
 }
 
 export interface DockerDriver {
+  /** Whether this driver is an in-memory simulation / fake */
+  readonly isMock?: boolean;
   // ── Container lifecycle ────────────────────────────────────────────────────
   /** Create a container (does not start it). */
   createContainer(opts: ContainerCreateOptions): Promise<string>;

@@ -497,6 +497,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ action, message }),
     }),
+  getBotLogs: (serverId: string, tail = 200) =>
+    request<{ logs: string[]; containerRunning: boolean }>(`/api/servers/${serverId}/companion/bot/logs?tail=${tail}`),
   getBotUsage: (serverId: string) =>
     request<CompanionUsage>(`/api/servers/${serverId}/companion/bot/usage`),
   getBotTraces: (serverId: string) =>
