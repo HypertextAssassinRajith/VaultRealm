@@ -69,11 +69,19 @@ COPY apps/api/drizzle* apps/api/
 RUN mkdir -p /srv/vaultrealm/data
 VOLUME ["/srv/vaultrealm/data"]
 
+# Optional build arguments for baking in Google Drive OAuth credentials
+ARG GOOGLE_CLIENT_ID=""
+ARG GOOGLE_CLIENT_SECRET=""
+ARG CLIENT_ID=""
+ARG CLIENT_SECRET=""
+
 # Runtime environment defaults
 ENV NODE_ENV=production \
     PORT=3001 \
     DATA_DIR=/srv/vaultrealm/data \
-    LOG_LEVEL=info
+    LOG_LEVEL=info \
+    GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-$CLIENT_ID} \
+    GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-$CLIENT_SECRET}
 
 EXPOSE 3001
 

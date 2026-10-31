@@ -19,6 +19,7 @@ async function main() {
 
   // ── Initialize Fastify with pino logging ───────────────────────────────────
   const app = Fastify({
+    trustProxy: true,
     logger: {
       level: config.LOG_LEVEL,
       ...(config.NODE_ENV === 'development'

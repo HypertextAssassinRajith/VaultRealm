@@ -70,6 +70,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            CLIENT_ID=${{ secrets.CLIENT_ID }}
+            CLIENT_SECRET=${{ secrets.CLIENT_SECRET }}
+            GOOGLE_CLIENT_ID=${{ secrets.CLIENT_ID }}
+            GOOGLE_CLIENT_SECRET=${{ secrets.CLIENT_SECRET }}
           cache-from: type=gha,scope=ghcr-realm
           cache-to: type=gha,mode=max,scope=ghcr-realm
           platforms: linux/amd64

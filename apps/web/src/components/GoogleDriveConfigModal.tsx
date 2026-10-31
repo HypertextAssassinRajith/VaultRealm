@@ -69,6 +69,8 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
   const [authCode, setAuthCode] = useState('');
   const [showCodeInput, setShowCodeInput] = useState(false);
   const [showCustomCredentials, setShowCustomCredentials] = useState(false);
+  const [savingAppCreds, setSavingAppCreds] = useState(false);
+  const [copiedRedirectUri, setCopiedRedirectUri] = useState(false);
 
   // Tab 2: Shared Folder (Google Apps Script Webhook)
   const [webhookUrl, setWebhookUrl] = useState('');
@@ -96,13 +98,19 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
           setWebhookFolderId(data.folderId || '');
         } else {
           setActiveTab('login');
-          setOauthClientId(data.clientId || '');
-          setManualClientId(data.clientId || '');
+          if (data.clientId) {
+            setOauthClientId(data.clientId);
+            setManualClientId(data.clientId);
+          }
           setManualFolderId(data.folderId || '');
         }
       } else {
-        // Not configured: default to Shared Folder if non-technical, or Google Login if env is set
-        if (!data.hasEnvCredentials) {
+        // Not configured yet
+        if (data.clientId) {
+          setOauthClientId(data.clientId);
+          setManualClientId(data.clientId);
+        }
+        if (!data.hasClientCredentials && !data.hasEnvCredentials) {
           setShowCustomCredentials(true);
         }
       }
@@ -141,10 +149,30 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
 
   // 1-Click "Sign in with Google"
   const handleSignInWithGoogle = async () => {
+    // Check if we have credentials
+    const hasCreds =
+      config?.hasClientCredentials ||
+      config?.hasEnvCredentials ||
+      (oauthClientId.trim() && oauthClientSecret.trim());
+
+    if (!hasCreds) {
+      setShowCustomCredentials(true);
+      addToast({
+        type: 'warning',
+        title: 'OAuth Credentials Required',
+        message: 'Please enter your Google Client ID and Client Secret below before signing in.',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const redirectUri = `${window.location.origin}/api/system/google-drive/callback`;
-      const res = await api.getGoogleDriveAuthUrl(redirectUri, oauthClientId.trim() || undefined);
+      const res = await api.getGoogleDriveAuthUrl({
+        redirectUri,
+        clientId: oauthClientId.trim() || undefined,
+        clientSecret: oauthClientSecret.trim() || undefined,
+      });
 
       // Open OAuth consent in a centered popup
       const width = 550;
@@ -166,12 +194,52 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
       addToast({
         type: 'error',
         title: 'Could not start Google Sign-In',
-        message: error.message || 'Please verify your Google Client ID.',
+        message: error.message || 'Please verify your Google Client ID and Client Secret.',
       });
       setShowCustomCredentials(true);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSaveAppCredentials = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!oauthClientId.trim()) {
+      addToast({ type: 'warning', title: 'Google Client ID is required.' });
+      return;
+    }
+
+    setSavingAppCreds(true);
+    try {
+      const res = await api.saveGoogleDriveAppCredentials({
+        clientId: oauthClientId.trim(),
+        clientSecret: oauthClientSecret.trim() || undefined,
+      });
+      setConfig(res.config);
+      setOauthClientSecret('');
+      addToast({
+        type: 'success',
+        title: 'OAuth Credentials Saved!',
+        message: 'Client ID and Secret stored securely. You can now click "Sign in with Google".',
+      });
+    } catch (err) {
+      const error = err as ApiError;
+      addToast({
+        type: 'error',
+        title: 'Failed to save OAuth credentials',
+        message: error.message,
+      });
+    } finally {
+      setSavingAppCreds(false);
+    }
+  };
+
+  const handleCopyRedirectUri = () => {
+    const uri = `${window.location.origin}/api/system/google-drive/callback`;
+    navigator.clipboard.writeText(uri);
+    setCopiedRedirectUri(true);
+    addToast({ type: 'info', title: 'Authorized Redirect URI copied to clipboard!' });
+    setTimeout(() => setCopiedRedirectUri(false), 3000);
   };
 
   // Submit Authorization Code directly
@@ -478,6 +546,14 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     Authenticate securely directly with your personal or Google Workspace account. Backups are stored in your Google Drive cloud with zero third-party intermediaries.
                   </p>
+                  {config?.hasEnvCredentials && (
+                    <div className="pt-1">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-medium">
+                        <span>⚡</span>
+                        <span>Google OAuth App Credentials active from container</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Big Google Login Button */}
@@ -558,6 +634,15 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
                   <span className="flex items-center gap-1.5 font-semibold">
                     <span>⚙️</span>
                     <span>OAuth App Credentials (Client ID & Secret)</span>
+                    {config?.hasEnvCredentials ? (
+                      <span className="badge badge-success text-[10px] py-0 px-1.5 ml-1.5 font-normal">
+                        ✓ Container Env Configured
+                      </span>
+                    ) : config?.hasClientCredentials ? (
+                      <span className="badge badge-success text-[10px] py-0 px-1.5 ml-1.5 font-normal">
+                        ✓ App Credentials Configured
+                      </span>
+                    ) : null}
                   </span>
                   <span className="text-[10px]">{showCustomCredentials ? 'Hide ▲' : 'Customize ▼'}</span>
                 </button>
@@ -565,40 +650,78 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
                 {showCustomCredentials && (
                   <div className="mt-2.5 p-4 rounded-xl bg-card-subtle border border-border/80 space-y-3 animate-fade-in text-xs">
                     <p className="text-muted-foreground leading-relaxed">
-                      VaultRealm needs a Google OAuth 2.0 Client ID to initiate login. If you don't have one configured in your host environment, enter it below once:
+                      VaultRealm connects to Google Drive using your Google Cloud OAuth 2.0 Web Application credentials. Enter your Client ID and Client Secret from Google Cloud Console:
                     </p>
                     <div className="space-y-2">
                       <div>
-                        <label className="block text-[11px] font-semibold text-foreground mb-1">Google Client ID</label>
+                        <label className="block text-[11px] font-semibold text-foreground mb-1">
+                          Google Client ID <span className="text-destructive">*</span>
+                        </label>
                         <input
                           type="text"
                           value={oauthClientId}
                           onChange={(e) => setOauthClientId(e.target.value)}
-                          placeholder="xxxx.apps.googleusercontent.com"
+                          placeholder="772379419361-xxxx.apps.googleusercontent.com"
                           className="input w-full text-xs font-mono"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-foreground mb-1">Google Client Secret</label>
+                        <label className="block text-[11px] font-semibold text-foreground mb-1">
+                          Google Client Secret{' '}
+                          {config?.hasClientCredentials ? (
+                            <span className="text-muted-foreground font-normal">(Leave blank to keep existing encrypted secret)</span>
+                          ) : (
+                            <span className="text-destructive">*</span>
+                          )}
+                        </label>
                         <input
                           type="password"
                           value={oauthClientSecret}
                           onChange={(e) => setOauthClientSecret(e.target.value)}
-                          placeholder="GOCSPX-xxxx..."
+                          placeholder={config?.hasClientCredentials ? '••••••••••••••••' : 'GOCSPX-xxxx...'}
                           className="input w-full text-xs font-mono"
                         />
                       </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground flex items-center justify-between pt-1">
-                      <span>Authorized Redirect URI: <code>{window.location.origin}/api/system/google-drive/callback</code></span>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={handleSaveAppCredentials}
+                        disabled={savingAppCreds || !oauthClientId.trim()}
+                        className="btn btn-secondary btn-sm text-xs py-1.5 px-3 flex items-center gap-1.5 font-semibold cursor-pointer"
+                      >
+                        {savingAppCreds ? <span className="animate-spin text-xs">⟳</span> : <span>💾</span>}
+                        <span>{savingAppCreds ? 'Saving...' : 'Save App Credentials'}</span>
+                      </button>
+
                       <a
                         href="https://console.cloud.google.com/apis/credentials"
                         target="_blank"
                         rel="noreferrer"
-                        className="text-primary hover:underline font-semibold"
+                        className="text-primary hover:underline font-semibold text-[11px]"
                       >
-                        Google Console ↗
+                        Google Cloud Console ↗
                       </a>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-card border border-border/60 text-[11px] text-muted-foreground space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-foreground">Authorized Redirect URI:</span>
+                        <button
+                          type="button"
+                          onClick={handleCopyRedirectUri}
+                          className="text-[10px] text-primary hover:underline cursor-pointer font-semibold"
+                        >
+                          {copiedRedirectUri ? '✓ Copied' : 'Copy URI'}
+                        </button>
+                      </div>
+                      <code className="block p-1.5 rounded bg-muted/30 font-mono text-[10px] break-all select-all text-foreground">
+                        {window.location.origin}/api/system/google-drive/callback
+                      </code>
+                      <p className="text-[10px] text-muted-foreground">
+                        Must match the Authorized Redirect URI in your Google Cloud Console Web Client.
+                      </p>
                     </div>
                   </div>
                 )}

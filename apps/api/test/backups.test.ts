@@ -237,6 +237,31 @@ describe('Server Backups & Google Drive Integration', () => {
       expect(testRes.json().details.displayName).toBe('VaultRealm Admin');
     });
 
+    it('detects CLIENT_ID and CLIENT_SECRET from environment aliases', async () => {
+      const origClientId = process.env.CLIENT_ID;
+      const origClientSecret = process.env.CLIENT_SECRET;
+      try {
+        process.env.CLIENT_ID = '772379419361-env-alias.apps.googleusercontent.com';
+        process.env.CLIENT_SECRET = 'GOCSPX-secretalias';
+
+        const configRes = await app.inject({
+          method: 'GET',
+          url: '/api/system/google-drive',
+          cookies: { vr_session: adminCookie },
+        });
+
+        expect(configRes.statusCode).toBe(200);
+        const configData = configRes.json();
+        expect(configData.hasEnvCredentials).toBe(true);
+        expect(configData.clientId).toBe('772379419361-env-alias.apps.googleusercontent.com');
+      } finally {
+        if (origClientId !== undefined) process.env.CLIENT_ID = origClientId;
+        else delete process.env.CLIENT_ID;
+        if (origClientSecret !== undefined) process.env.CLIENT_SECRET = origClientSecret;
+        else delete process.env.CLIENT_SECRET;
+      }
+    });
+
     it('generates Google OAuth authorization URL for 1-click Sign-in', async () => {
       const res = await app.inject({
         method: 'GET',
@@ -249,6 +274,35 @@ describe('Server Backups & Google Drive Integration', () => {
       expect(data.url).toContain('accounts.google.com/o/oauth2/v2/auth');
       expect(data.url).toContain('custom-client-id.apps.googleusercontent.com');
       expect(data.redirectUri).toBeDefined();
+    });
+
+    it('saves OAuth app credentials and generates auth URL via POST', async () => {
+      const credsRes = await app.inject({
+        method: 'POST',
+        url: '/api/system/google-drive/credentials',
+        cookies: { vr_session: adminCookie },
+        payload: {
+          clientId: '772379419361-posttest.apps.googleusercontent.com',
+          clientSecret: 'GOCSPX-secretposttest',
+        },
+      });
+
+      expect(credsRes.statusCode).toBe(200);
+      expect(credsRes.json().config.hasClientCredentials).toBe(true);
+
+      const postAuthRes = await app.inject({
+        method: 'POST',
+        url: '/api/system/google-drive/auth-url',
+        cookies: { vr_session: adminCookie },
+        payload: {
+          redirectUri: 'https://realm.vaultsoftlabs.tech/api/system/google-drive/callback',
+        },
+      });
+
+      expect(postAuthRes.statusCode).toBe(200);
+      const authData = postAuthRes.json();
+      expect(authData.url).toContain('772379419361-posttest.apps.googleusercontent.com');
+      expect(authData.url).toContain('redirect_uri=https%3A%2F%2Frealm.vaultsoftlabs.tech%2Fapi%2Fsystem%2Fgoogle-drive%2Fcallback');
     });
 
     it('connects via Shared Folder Webhook (Google Apps Script)', async () => {

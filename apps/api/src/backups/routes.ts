@@ -28,6 +28,7 @@ import {
   testGoogleDriveConnection,
   getGoogleDriveAuthUrl,
   exchangeAuthCode,
+  saveOAuthAppCredentials,
 } from './gdrive.js';
 
 const createBackupSchema = z.object({
@@ -48,6 +49,12 @@ const exchangeCodeSchema = z.object({
   code: z.string().min(1, 'Authorization code is required'),
   redirectUri: z.string().optional(),
   clientId: z.string().optional(),
+  clientSecret: z.string().optional(),
+  folderId: z.string().optional(),
+});
+
+const saveCredentialsSchema = z.object({
+  clientId: z.string().min(1, 'Client ID is required'),
   clientSecret: z.string().optional(),
   folderId: z.string().optional(),
 });
@@ -178,11 +185,36 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
     return getPublicDriveConfig();
   });
 
+  // POST /api/system/google-drive/credentials (save client ID & secret)
+  app.post<{ Body: unknown }>(
+    '/api/system/google-drive/credentials',
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const user = getRequestUser(request);
+      await assertCan(user, 'admin:system');
+
+      const parsed = saveCredentialsSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid OAuth app credentials.',
+          details: parsed.error.issues.map((i) => i.message),
+        });
+      }
+
+      saveOAuthAppCredentials(parsed.data);
+      return reply.send({
+        message: 'OAuth app credentials saved successfully.',
+        config: getPublicDriveConfig(),
+      });
+    },
+  );
+
   // GET /api/system/google-drive/auth-url (1-click Sign in with Google)
-  app.get<{ Querystring: { redirectUri?: string; clientId?: string } }>(
+  app.get<{ Querystring: { redirectUri?: string; clientId?: string; clientSecret?: string; folderId?: string } }>(
     '/api/system/google-drive/auth-url',
     { preHandler: [requireAuth] },
-    async (request) => {
+    async (request, reply) => {
       const user = getRequestUser(request);
       await assertCan(user, 'admin:system');
 
@@ -191,12 +223,69 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
       const defaultRedirectUri = `${protocol}://${host}/api/system/google-drive/callback`;
       const redirectUri = request.query.redirectUri || defaultRedirectUri;
 
-      const url = getGoogleDriveAuthUrl({
-        clientId: request.query.clientId,
-        redirectUri,
-      });
+      try {
+        const url = getGoogleDriveAuthUrl({
+          clientId: request.query.clientId,
+          clientSecret: request.query.clientSecret,
+          folderId: request.query.folderId,
+          redirectUri,
+        });
 
-      return { url, redirectUri };
+        return { url, redirectUri };
+      } catch (err) {
+        return reply.status(400).send({
+          code: 'AUTH_URL_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+  );
+
+  // POST /api/system/google-drive/auth-url (allows passing clientSecret securely in body)
+  app.post<{ Body: unknown }>(
+    '/api/system/google-drive/auth-url',
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const user = getRequestUser(request);
+      await assertCan(user, 'admin:system');
+
+      const parsed = z
+        .object({
+          redirectUri: z.string().optional(),
+          clientId: z.string().optional(),
+          clientSecret: z.string().optional(),
+          folderId: z.string().optional(),
+        })
+        .safeParse(request.body || {});
+
+      if (!parsed.success) {
+        return reply.status(400).send({
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request parameters.',
+          details: parsed.error.issues.map((i) => i.message),
+        });
+      }
+
+      const protocol = request.protocol || 'http';
+      const host = request.headers.host || 'localhost:3001';
+      const defaultRedirectUri = `${protocol}://${host}/api/system/google-drive/callback`;
+      const redirectUri = parsed.data.redirectUri || defaultRedirectUri;
+
+      try {
+        const url = getGoogleDriveAuthUrl({
+          clientId: parsed.data.clientId,
+          clientSecret: parsed.data.clientSecret,
+          folderId: parsed.data.folderId,
+          redirectUri,
+        });
+
+        return { url, redirectUri };
+      } catch (err) {
+        return reply.status(400).send({
+          code: 'AUTH_URL_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     },
   );
 
@@ -204,15 +293,19 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { code?: string; error?: string; state?: string } }>(
     '/api/system/google-drive/callback',
     async (request, reply) => {
-      const { code, error } = request.query;
-      reply.type('text/html');
+      const { code, error, state } = request.query;
+      reply.type('text/html; charset=utf-8');
 
       if (error || !code) {
         return reply.send(`
           <!DOCTYPE html>
-          <html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Google Sign-In Cancelled</title>
+          </head>
           <body style="font-family:sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-            <div style="text-align:center;padding:2rem;background:#1e293b;border-radius:1rem;border:1px solid #ef4444;max-width:420px;">
+            <div style="text-align:center;padding:2rem;background:#1e293b;border-radius:1rem;border:1px solid #ef4444;max-width:440px;">
               <div style="font-size:3rem;margin-bottom:1rem;">❌</div>
               <h2 style="margin:0 0 0.5rem 0;color:#ef4444;">Google Sign-In Cancelled</h2>
               <p style="color:#94a3b8;font-size:0.875rem;">${error || 'Authorization code was not provided.'}</p>
@@ -224,18 +317,36 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        const protocol = request.protocol || 'http';
-        const host = request.headers.host || 'localhost:3001';
-        const redirectUri = `${protocol}://${host}/api/system/google-drive/callback`;
+        // Decode redirectUri from state if present to guarantee exact match behind reverse proxy
+        let redirectUri: string | undefined;
+        if (state) {
+          try {
+            const decoded = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
+            if (decoded && typeof decoded.redirectUri === 'string') {
+              redirectUri = decoded.redirectUri;
+            }
+          } catch {
+            // fallback if state was not base64url JSON
+          }
+        }
+
+        if (!redirectUri) {
+          const protocol = request.protocol || 'http';
+          const host = request.headers.host || 'localhost:3001';
+          redirectUri = `${protocol}://${host}/api/system/google-drive/callback`;
+        }
 
         const config = await exchangeAuthCode({ code, redirectUri });
 
         return reply.send(`
           <!DOCTYPE html>
-          <html>
-          <head><title>Google Drive Connected</title></head>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Google Drive Connected</title>
+          </head>
           <body style="font-family:sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-            <div style="text-align:center;padding:2rem;background:#1e293b;border-radius:1rem;border:1px solid #10b981;max-width:420px;">
+            <div style="text-align:center;padding:2rem;background:#1e293b;border-radius:1rem;border:1px solid #10b981;max-width:440px;">
               <div style="font-size:3rem;margin-bottom:1rem;">✅</div>
               <h2 style="margin:0 0 0.5rem 0;color:#10b981;">Google Drive Connected!</h2>
               <p style="color:#94a3b8;font-size:0.875rem;margin-bottom:1.5rem;">
@@ -259,12 +370,16 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
       } catch (err) {
         return reply.send(`
           <!DOCTYPE html>
-          <html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Connection Failed</title>
+          </head>
           <body style="font-family:sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-            <div style="text-align:center;padding:2rem;background:#1e293b;border-radius:1rem;border:1px solid #ef4444;max-width:420px;">
+            <div style="text-align:center;padding:2rem;background:#1e293b;border-radius:1rem;border:1px solid #ef4444;max-width:440px;">
               <div style="font-size:3rem;margin-bottom:1rem;">❌</div>
               <h2 style="margin:0 0 0.5rem 0;color:#ef4444;">Connection Failed</h2>
-              <p style="color:#94a3b8;font-size:0.875rem;">${err instanceof Error ? err.message : String(err)}</p>
+              <p style="color:#94a3b8;font-size:0.875rem;white-space:pre-wrap;word-break:break-word;">${err instanceof Error ? err.message : String(err)}</p>
               <button onclick="window.close()" style="margin-top:1rem;padding:0.5rem 1.25rem;background:#334155;color:#fff;border:none;border-radius:0.5rem;cursor:pointer;">Close Window</button>
             </div>
           </body>
