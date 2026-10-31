@@ -27,6 +27,7 @@ interface MockContainer {
 }
 
 export class MockDockerDriver implements DockerDriver {
+  readonly isMock = true;
   /** All containers managed by this mock. */
   readonly containers = new Map<string, MockContainer>();
 

@@ -18,12 +18,11 @@ import type {
 } from './driver.js';
 
 export class RealDockerDriver implements DockerDriver {
+  readonly isMock = false;
   private docker: Docker;
 
   constructor(socketPath?: string) {
-    this.docker = new Docker({
-      socketPath: socketPath ?? '/var/run/docker.sock',
-    });
+    this.docker = socketPath ? new Docker({ socketPath }) : new Docker();
   }
 
   async createContainer(opts: ContainerCreateOptions): Promise<string> {

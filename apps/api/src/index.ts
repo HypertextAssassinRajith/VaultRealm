@@ -6,6 +6,7 @@ import { loadConfig } from './config.js';
 import { initDatabase, runMigrations, closeDatabase } from './db/index.js';
 import { authRoutes } from './auth/index.js';
 import { serverRoutes, setDockerDriver } from './servers/index.js';
+import { backupRoutes } from './backups/routes.js';
 import { registerRealtimeGateway } from './realtime/index.js';
 import { companionRoutes, botRoutes, registerGateway } from './companion/index.js';
 import { registerStatic, isSpaRoute } from './static.js';
@@ -72,6 +73,7 @@ async function main() {
   await app.register(serverRoutes);
   await app.register(companionRoutes);
   await app.register(botRoutes);
+  await app.register(backupRoutes);
   await registerGateway(app);
 
   // ── Static frontend assets (production / built web) ───────────────────────

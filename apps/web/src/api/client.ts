@@ -497,6 +497,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ action, message }),
     }),
+  getBotLogs: (serverId: string, tail = 200) =>
+    request<{ logs: string[]; containerRunning: boolean }>(`/api/servers/${serverId}/companion/bot/logs?tail=${tail}`),
   getBotUsage: (serverId: string) =>
     request<CompanionUsage>(`/api/servers/${serverId}/companion/bot/usage`),
   getBotTraces: (serverId: string) =>
@@ -506,7 +508,162 @@ export const api = {
       `/api/servers/${serverId}/companion/bot/device-code`,
       { method: 'POST' },
     ),
+
+  // Backups & Restores
+  getServerBackups: (serverId: string) =>
+    request<{ backups: BackupDetail[] }>(`/api/servers/${serverId}/backups`),
+  createServerBackup: (serverId: string, data: { name?: string; uploadToDrive?: boolean }) =>
+    request<BackupDetail>(`/api/servers/${serverId}/backups`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  restoreServerBackup: (serverId: string, backupId: string) =>
+    request<{ message: string }>(`/api/servers/${serverId}/backups/${backupId}/restore`, {
+      method: 'POST',
+    }),
+  uploadBackupToDrive: (serverId: string, backupId: string) =>
+    request<BackupDetail>(`/api/servers/${serverId}/backups/${backupId}/upload-drive`, {
+      method: 'POST',
+    }),
+  deleteServerBackup: (serverId: string, backupId: string) =>
+    request<{ message: string }>(`/api/servers/${serverId}/backups/${backupId}`, {
+      method: 'DELETE',
+    }),
+  getServerBackupDownloadUrl: (serverId: string, backupId: string) =>
+    `/api/servers/${serverId}/backups/${backupId}/download`,
+
+  // System Backups & Google Drive Settings
+  getGoogleDriveConfig: () =>
+    request<PublicGoogleDriveConfig>('/api/system/google-drive'),
+  getGoogleDriveAuthUrl: (redirectUri?: string, clientId?: string) => {
+    const params = new URLSearchParams();
+    if (redirectUri) params.set('redirectUri', redirectUri);
+    if (clientId) params.set('clientId', clientId);
+    const q = params.toString() ? `?${params.toString()}` : '';
+    return request<{ url: string; redirectUri: string }>(`/api/system/google-drive/auth-url${q}`);
+  },
+  exchangeGoogleDriveCode: (data: {
+    code: string;
+    redirectUri?: string;
+    clientId?: string;
+    clientSecret?: string;
+    folderId?: string;
+  }) =>
+    request<{ message: string; config: PublicGoogleDriveConfig }>('/api/system/google-drive/exchange-code', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  saveGoogleDriveConfig: (data: {
+    mode?: 'oauth' | 'webhook';
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    folderId?: string;
+    webhookUrl?: string;
+  }) =>
+    request<{ message: string; config: PublicGoogleDriveConfig }>('/api/system/google-drive', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  testGoogleDriveConnection: () =>
+    request<{ message: string; details: GoogleDriveTestResult }>('/api/system/google-drive/test', {
+      method: 'POST',
+    }),
+  deleteGoogleDriveConfig: () =>
+    request<{ message: string }>('/api/system/google-drive', {
+      method: 'DELETE',
+    }),
+  createSystemBackup: (data: { uploadToDrive?: boolean } = {}) =>
+    request<SystemBackupDetail>('/api/system/backups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  listSystemBackups: () =>
+    request<{ backups: SystemBackupDetail[] }>('/api/system/backups'),
+  getSystemBackupDownloadUrl: (filename: string) =>
+    `/api/system/backups/${encodeURIComponent(filename)}/download`,
 };
+
+export async function downloadWithAuth(url: string, filename: string): Promise<void> {
+  const headers = new Headers();
+  if (currentToken) {
+    headers.set('Authorization', `Bearer ${currentToken}`);
+  }
+  const res = await fetch(url, { headers, credentials: 'include' });
+  if (!res.ok) {
+    let msg = `Download failed with status ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data?.message) msg = data.message;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(blobUrl);
+}
+
+export interface BackupDetail {
+  id: string;
+  serverId: string;
+  name: string;
+  path: string;
+  sizeBytes: number;
+  gdriveFileId: string | null;
+  gdriveWebLink: string | null;
+  createdAt: string;
+}
+
+export interface PublicGoogleDriveConfig {
+  configured: boolean;
+  mode?: 'oauth' | 'webhook';
+  clientId?: string;
+  folderId?: string;
+  folderName?: string;
+  userEmail?: string;
+  userName?: string;
+  displayName?: string;
+  webhookUrl?: string;
+  hasEnvCredentials?: boolean;
+  envClientId?: string;
+  updatedAt?: string;
+}
+
+export interface GoogleDriveTestResult {
+  ok: boolean;
+  email?: string;
+  displayName?: string;
+  folderName?: string;
+  user?: {
+    displayName: string;
+    emailAddress: string;
+    photoLink?: string;
+  };
+  storageQuota?: {
+    limit?: string;
+    usage?: string;
+    limitBytes?: number;
+    usageBytes?: number;
+    usageInDrive?: string;
+  };
+  error?: string;
+}
+
+export interface SystemBackupDetail {
+  filename: string;
+  sizeBytes: number;
+  createdAt: string;
+  gdriveFileId?: string | null;
+  gdriveWebLink?: string | null;
+}
 
 export interface LlmEndpointPreset {
   id: string;
