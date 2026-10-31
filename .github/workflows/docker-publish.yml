@@ -53,18 +53,23 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          flavor: latest=false
+          flavor: |
+            latest=false
           tags: |
+            # Master branch builds get :edge
             type=edge,branch=master
+            # Release tag: exact semver (e.g. 0.1.7)
             type=semver,pattern={{version}}
+            # Release tag: minor version track (e.g. 0.1)
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-
+            # Release tag: major version only for stable v1+ (e.g. 1, 2)
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            # Release tag: update latest
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
           labels: |
             org.opencontainers.image.title=VaultRealm
-            org.opencontainers.image.description=Self-hosted game server control panel
-            org.opencontainers.image.vendor=HypertextAssassinRajith
+            org.opencontainers.image.description=A lightweight, modern, multi-user control panel for self-hosting game servers
+            org.opencontainers.image.vendor=VaultSoft Labs
 
       - name: Build and push Realm image
         id: push
@@ -119,18 +124,23 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-bot-runner
-          flavor: latest=false
+          flavor: |
+            latest=false
           tags: |
+            # Master branch builds get :edge
             type=edge,branch=master
+            # Release tag: exact semver (e.g. 0.1.7)
             type=semver,pattern={{version}}
+            # Release tag: minor version track (e.g. 0.1)
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-
+            # Release tag: major version only for stable v1+ (e.g. 1, 2)
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            # Release tag: update latest
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
           labels: |
             org.opencontainers.image.title=VaultRealm Bot Runner
-            org.opencontainers.image.description=Autonomous AI Companion Bot Runner for Minecraft servers
-            org.opencontainers.image.vendor=HypertextAssassinRajith
+            org.opencontainers.image.description=Autonomous AI Companion Bot Runner for Minecraft servers in VaultRealm
+            org.opencontainers.image.vendor=VaultSoft Labs
 
       - name: Build and push Bot image
         id: push
