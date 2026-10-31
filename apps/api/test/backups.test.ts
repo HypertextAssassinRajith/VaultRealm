@@ -251,6 +251,35 @@ describe('Server Backups & Google Drive Integration', () => {
       expect(data.redirectUri).toBeDefined();
     });
 
+    it('saves OAuth app credentials and generates auth URL via POST', async () => {
+      const credsRes = await app.inject({
+        method: 'POST',
+        url: '/api/system/google-drive/credentials',
+        cookies: { vr_session: adminCookie },
+        payload: {
+          clientId: '772379419361-posttest.apps.googleusercontent.com',
+          clientSecret: 'GOCSPX-secretposttest',
+        },
+      });
+
+      expect(credsRes.statusCode).toBe(200);
+      expect(credsRes.json().config.hasClientCredentials).toBe(true);
+
+      const postAuthRes = await app.inject({
+        method: 'POST',
+        url: '/api/system/google-drive/auth-url',
+        cookies: { vr_session: adminCookie },
+        payload: {
+          redirectUri: 'https://realm.vaultsoftlabs.tech/api/system/google-drive/callback',
+        },
+      });
+
+      expect(postAuthRes.statusCode).toBe(200);
+      const authData = postAuthRes.json();
+      expect(authData.url).toContain('772379419361-posttest.apps.googleusercontent.com');
+      expect(authData.url).toContain('redirect_uri=https%3A%2F%2Frealm.vaultsoftlabs.tech%2Fapi%2Fsystem%2Fgoogle-drive%2Fcallback');
+    });
+
     it('connects via Shared Folder Webhook (Google Apps Script)', async () => {
       const originalFetch = global.fetch;
       global.fetch = vi.fn().mockImplementation((url: string | URL) => {

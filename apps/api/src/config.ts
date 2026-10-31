@@ -48,6 +48,12 @@ const envSchema = z.object({
 
   /** Frontend origin for CORS */
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+
+  /** Google OAuth Client ID for Google Drive backups */
+  GOOGLE_CLIENT_ID: z.string().optional(),
+
+  /** Google OAuth Client Secret for Google Drive backups */
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;

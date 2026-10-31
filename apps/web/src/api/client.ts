@@ -535,13 +535,31 @@ export const api = {
   // System Backups & Google Drive Settings
   getGoogleDriveConfig: () =>
     request<PublicGoogleDriveConfig>('/api/system/google-drive'),
-  getGoogleDriveAuthUrl: (redirectUri?: string, clientId?: string) => {
-    const params = new URLSearchParams();
-    if (redirectUri) params.set('redirectUri', redirectUri);
-    if (clientId) params.set('clientId', clientId);
-    const q = params.toString() ? `?${params.toString()}` : '';
-    return request<{ url: string; redirectUri: string }>(`/api/system/google-drive/auth-url${q}`);
+  getGoogleDriveAuthUrl: (
+    optsOrRedirectUri?: string | { redirectUri?: string; clientId?: string; clientSecret?: string; folderId?: string },
+    clientId?: string,
+  ) => {
+    if (typeof optsOrRedirectUri === 'object' && optsOrRedirectUri !== null) {
+      return request<{ url: string; redirectUri: string }>('/api/system/google-drive/auth-url', {
+        method: 'POST',
+        body: JSON.stringify(optsOrRedirectUri),
+      });
+    }
+    const redirectUri = optsOrRedirectUri;
+    return request<{ url: string; redirectUri: string }>('/api/system/google-drive/auth-url', {
+      method: 'POST',
+      body: JSON.stringify({ redirectUri, clientId }),
+    });
   },
+  saveGoogleDriveAppCredentials: (data: {
+    clientId: string;
+    clientSecret?: string;
+    folderId?: string;
+  }) =>
+    request<{ message: string; config: PublicGoogleDriveConfig }>('/api/system/google-drive/credentials', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   exchangeGoogleDriveCode: (data: {
     code: string;
     redirectUri?: string;
@@ -633,6 +651,7 @@ export interface PublicGoogleDriveConfig {
   displayName?: string;
   webhookUrl?: string;
   hasEnvCredentials?: boolean;
+  hasClientCredentials?: boolean;
   envClientId?: string;
   updatedAt?: string;
 }
