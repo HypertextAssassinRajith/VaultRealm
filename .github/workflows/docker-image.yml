@@ -1,9 +1,8 @@
 name: Publish Docker images to Docker Hub
 
 # Triggers:
-#   push to master  -> hypertextassassin/vaultrealm:edge & :latest
-#                      hypertextassassin/vaultrealm-bot-runner:edge & :latest
-#   git tag v*      -> :0.1.0, :0.1, :1, and :latest
+#   push to master  -> :edge
+#   git tag v*      -> :0.1.7, :0.1, and :latest (clean semver without internal sha or raw '0' tags)
 #   PR to master    -> build validation only (push: false)
 on:
   push:
@@ -18,7 +17,6 @@ on:
 env:
   REALM_IMAGE: hypertextassassin/vaultrealm
   BOT_IMAGE: hypertextassassin/vaultrealm-bot-runner
-  BOT_ALT_IMAGE: hypertextassassin/bot-runner
 
 jobs:
   # ── Job 1: Build & Push Panel / Realm Image ──────────────────────────────────
@@ -51,18 +49,23 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REALM_IMAGE }}
-          flavor: latest=false
+          flavor: |
+            latest=false
           tags: |
+            # Master branch builds get :edge
             type=edge,branch=master
+            # Release tag: exact semver (e.g. 0.1.7)
             type=semver,pattern={{version}}
+            # Release tag: minor version track (e.g. 0.1)
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-
+            # Release tag: major version only for stable v1+ (e.g. 1, 2)
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            # Release tag: update latest
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
           labels: |
             org.opencontainers.image.title=VaultRealm
-            org.opencontainers.image.description=Self-hosted game server control panel
-            org.opencontainers.image.vendor=HypertextAssassinRajith
+            org.opencontainers.image.description=A lightweight, modern, multi-user control panel for self-hosting game servers
+            org.opencontainers.image.vendor=VaultSoft Labs
 
       - name: Build and push Realm image
         uses: docker/build-push-action@v6
@@ -76,13 +79,24 @@ jobs:
           cache-from: type=gha,scope=realm
           cache-to: type=gha,mode=max,scope=realm
 
-      # Re-pushing :latest last ensures it is at the top of the Docker Hub tag list
+      # Re-pushing :latest last ensures it appears at the top of the Docker Hub tag list
       - name: Move latest to the top of the tag list
         if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v') && steps.meta.outputs.version != ''
         run: |
           docker buildx imagetools create \
             -t ${{ env.REALM_IMAGE }}:latest \
             ${{ env.REALM_IMAGE }}:${{ steps.meta.outputs.version }}
+
+      - name: Update Docker Hub repository description
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: peter-evans/dockerhub-description@v4
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.REALM_IMAGE }}
+          short-description: "A lightweight, modern, multi-user control panel for self-hosting game servers."
+          readme-filepath: ./README.md
 
   # ── Job 2: Build & Push Companion Bot Runner Image ───────────────────────────
   bot:
@@ -113,21 +127,24 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ env.BOT_IMAGE }}
-            ${{ env.BOT_ALT_IMAGE }}
-          flavor: latest=false
+          images: ${{ env.BOT_IMAGE }}
+          flavor: |
+            latest=false
           tags: |
+            # Master branch builds get :edge
             type=edge,branch=master
+            # Release tag: exact semver (e.g. 0.1.7)
             type=semver,pattern={{version}}
+            # Release tag: minor version track (e.g. 0.1)
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-
+            # Release tag: major version only for stable v1+ (e.g. 1, 2)
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            # Release tag: update latest
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
           labels: |
             org.opencontainers.image.title=VaultRealm Bot Runner
-            org.opencontainers.image.description=Autonomous AI Companion Bot Runner for Minecraft servers
-            org.opencontainers.image.vendor=HypertextAssassinRajith
+            org.opencontainers.image.description=Autonomous AI Companion Bot Runner for Minecraft servers in VaultRealm
+            org.opencontainers.image.vendor=VaultSoft Labs
 
       - name: Build and push Bot image
         uses: docker/build-push-action@v6
@@ -141,13 +158,21 @@ jobs:
           cache-from: type=gha,scope=bot
           cache-to: type=gha,mode=max,scope=bot
 
-      # Re-pushing :latest last ensures it is at the top of the Docker Hub tag list
+      # Re-pushing :latest last ensures it appears at the top of the Docker Hub tag list
       - name: Move latest to the top of the tag list
         if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v') && steps.meta.outputs.version != ''
         run: |
           docker buildx imagetools create \
             -t ${{ env.BOT_IMAGE }}:latest \
             ${{ env.BOT_IMAGE }}:${{ steps.meta.outputs.version }}
-          docker buildx imagetools create \
-            -t ${{ env.BOT_ALT_IMAGE }}:latest \
-            ${{ env.BOT_ALT_IMAGE }}:${{ steps.meta.outputs.version }}
+
+      - name: Update Docker Hub repository description
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: peter-evans/dockerhub-description@v4
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.BOT_IMAGE }}
+          short-description: "Autonomous AI Companion Bot Runner for Minecraft servers in VaultRealm"
+          readme-filepath: ./apps/bot-runner/README.md
