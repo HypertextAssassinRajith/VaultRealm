@@ -237,6 +237,31 @@ describe('Server Backups & Google Drive Integration', () => {
       expect(testRes.json().details.displayName).toBe('VaultRealm Admin');
     });
 
+    it('detects CLIENT_ID and CLIENT_SECRET from environment aliases', async () => {
+      const origClientId = process.env.CLIENT_ID;
+      const origClientSecret = process.env.CLIENT_SECRET;
+      try {
+        process.env.CLIENT_ID = '772379419361-env-alias.apps.googleusercontent.com';
+        process.env.CLIENT_SECRET = 'GOCSPX-secretalias';
+
+        const configRes = await app.inject({
+          method: 'GET',
+          url: '/api/system/google-drive',
+          cookies: { vr_session: adminCookie },
+        });
+
+        expect(configRes.statusCode).toBe(200);
+        const configData = configRes.json();
+        expect(configData.hasEnvCredentials).toBe(true);
+        expect(configData.clientId).toBe('772379419361-env-alias.apps.googleusercontent.com');
+      } finally {
+        if (origClientId !== undefined) process.env.CLIENT_ID = origClientId;
+        else delete process.env.CLIENT_ID;
+        if (origClientSecret !== undefined) process.env.CLIENT_SECRET = origClientSecret;
+        else delete process.env.CLIENT_SECRET;
+      }
+    });
+
     it('generates Google OAuth authorization URL for 1-click Sign-in', async () => {
       const res = await app.inject({
         method: 'GET',

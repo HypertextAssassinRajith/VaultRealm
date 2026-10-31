@@ -54,6 +54,12 @@ const envSchema = z.object({
 
   /** Google OAuth Client Secret for Google Drive backups */
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+
+  /** Alias for Google OAuth Client ID */
+  CLIENT_ID: z.string().optional(),
+
+  /** Alias for Google OAuth Client Secret */
+  CLIENT_SECRET: z.string().optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;

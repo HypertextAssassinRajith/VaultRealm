@@ -78,6 +78,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            CLIENT_ID=${{ secrets.CLIENT_ID }}
+            CLIENT_SECRET=${{ secrets.CLIENT_SECRET }}
+            GOOGLE_CLIENT_ID=${{ secrets.CLIENT_ID }}
+            GOOGLE_CLIENT_SECRET=${{ secrets.CLIENT_SECRET }}
           cache-from: type=gha,scope=realm
           cache-to: type=gha,mode=max,scope=realm
 

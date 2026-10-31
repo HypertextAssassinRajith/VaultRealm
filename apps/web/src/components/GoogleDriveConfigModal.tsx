@@ -546,6 +546,14 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     Authenticate securely directly with your personal or Google Workspace account. Backups are stored in your Google Drive cloud with zero third-party intermediaries.
                   </p>
+                  {config?.hasEnvCredentials && (
+                    <div className="pt-1">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-medium">
+                        <span>⚡</span>
+                        <span>Google OAuth App Credentials active from container</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Big Google Login Button */}
@@ -626,11 +634,15 @@ export function GoogleDriveConfigModal({ open, onClose, onSaved }: GoogleDriveCo
                   <span className="flex items-center gap-1.5 font-semibold">
                     <span>⚙️</span>
                     <span>OAuth App Credentials (Client ID & Secret)</span>
-                    {(config?.hasClientCredentials || config?.hasEnvCredentials) && (
+                    {config?.hasEnvCredentials ? (
+                      <span className="badge badge-success text-[10px] py-0 px-1.5 ml-1.5 font-normal">
+                        ✓ Container Env Configured
+                      </span>
+                    ) : config?.hasClientCredentials ? (
                       <span className="badge badge-success text-[10px] py-0 px-1.5 ml-1.5 font-normal">
                         ✓ App Credentials Configured
                       </span>
-                    )}
+                    ) : null}
                   </span>
                   <span className="text-[10px]">{showCustomCredentials ? 'Hide ▲' : 'Customize ▼'}</span>
                 </button>

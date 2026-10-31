@@ -78,6 +78,15 @@ let _tokenExpiresAt = 0;
 /**
  * Retrieve raw stored Google Drive configuration from database.
  */
+function getEnvClientId(): string | undefined {
+  const id = process.env.GOOGLE_CLIENT_ID || process.env.CLIENT_ID;
+  return id?.trim() || undefined;
+}
+
+function getEnvClientSecret(): string | undefined {
+  const secret = process.env.GOOGLE_CLIENT_SECRET || process.env.CLIENT_SECRET;
+  return secret?.trim() || undefined;
+}
 export function getStoredDriveConfig(): StoredGoogleDriveConfig | null {
   const db = getDatabase();
   const row = db.select().from(systemSettings).where(eq(systemSettings.key, SETTINGS_KEY)).all()[0];
@@ -129,10 +138,11 @@ export function saveOAuthAppCredentials(input: {
 
 export function getPublicDriveConfig(): PublicGoogleDriveConfig {
   const stored = getStoredDriveConfig();
-  const envClientId = process.env.GOOGLE_CLIENT_ID;
-  const hasEnvCredentials = Boolean(envClientId && process.env.GOOGLE_CLIENT_SECRET);
+  const envClientId = getEnvClientId();
+  const envClientSecret = getEnvClientSecret();
+  const hasEnvCredentials = Boolean(envClientId && envClientSecret);
   const hasClientCredentials = Boolean(
-    hasEnvCredentials || (stored?.clientId && (stored.clientSecretEnc || process.env.GOOGLE_CLIENT_SECRET)),
+    hasEnvCredentials || (stored?.clientId && (stored.clientSecretEnc || envClientSecret)),
   );
 
   if (!stored) {
@@ -140,6 +150,7 @@ export function getPublicDriveConfig(): PublicGoogleDriveConfig {
       configured: false,
       hasEnvCredentials,
       hasClientCredentials,
+      clientId: envClientId,
       envClientId: envClientId ? `${envClientId.slice(0, 4)}***` : undefined,
     };
   }
@@ -210,9 +221,10 @@ export function getGoogleDriveAuthUrl(opts: {
   }
 
   const stored = getStoredDriveConfig();
-  const clientId = opts.clientId?.trim() || stored?.clientId || process.env.GOOGLE_CLIENT_ID;
+  const envClientId = getEnvClientId();
+  const clientId = opts.clientId?.trim() || stored?.clientId || envClientId;
   if (!clientId) {
-    throw new Error('Google Client ID is required. Enter your Client ID or set GOOGLE_CLIENT_ID in server environment.');
+    throw new Error('Google Client ID is required. Enter your Client ID or set GOOGLE_CLIENT_ID / CLIENT_ID in server environment.');
   }
 
   // Preserve redirectUri in state parameter to prevent any redirect URI mismatch behind proxies
@@ -252,10 +264,12 @@ export async function exchangeAuthCode(opts: {
   folderId?: string;
 }): Promise<PublicGoogleDriveConfig> {
   const stored = getStoredDriveConfig();
-  const clientId = opts.clientId?.trim() || stored?.clientId || process.env.GOOGLE_CLIENT_ID;
+  const envClientId = getEnvClientId();
+  const envClientSecret = getEnvClientSecret();
+  const clientId = opts.clientId?.trim() || stored?.clientId || envClientId;
   const clientSecret =
     opts.clientSecret?.trim() ||
-    (stored?.clientSecretEnc ? decryptApiKey(stored.clientSecretEnc) : process.env.GOOGLE_CLIENT_SECRET);
+    (stored?.clientSecretEnc ? decryptApiKey(stored.clientSecretEnc) : envClientSecret);
 
   if (!clientId || !clientSecret) {
     throw new Error(
@@ -338,13 +352,15 @@ export async function saveDriveConfig(input: GoogleDriveConfigInput): Promise<Pu
   }
 
   // OAuth Mode
-  const clientId = input.clientId?.trim() || existing?.clientId || process.env.GOOGLE_CLIENT_ID || '';
+  const envClientId = getEnvClientId();
+  const envClientSecret = getEnvClientSecret();
+  const clientId = input.clientId?.trim() || existing?.clientId || envClientId || '';
   const clientSecret = input.clientSecret ? input.clientSecret.trim() : null;
   const refreshToken = input.refreshToken ? input.refreshToken.trim() : null;
 
   const clientSecretEnc = clientSecret
     ? encryptApiKey(clientSecret)
-    : existing?.clientSecretEnc || (process.env.GOOGLE_CLIENT_SECRET ? encryptApiKey(process.env.GOOGLE_CLIENT_SECRET) : undefined);
+    : existing?.clientSecretEnc || (envClientSecret ? encryptApiKey(envClientSecret) : undefined);
   const refreshTokenEnc = refreshToken
     ? encryptApiKey(refreshToken)
     : existing?.refreshTokenEnc;
@@ -426,10 +442,12 @@ export async function getValidAccessToken(providedConfig?: StoredGoogleDriveConf
     throw new Error('Google Drive is not configured.');
   }
 
-  const clientId = config.clientId || process.env.GOOGLE_CLIENT_ID;
+  const envClientId = getEnvClientId();
+  const envClientSecret = getEnvClientSecret();
+  const clientId = config.clientId || envClientId;
   const clientSecret = config.clientSecretEnc
     ? decryptApiKey(config.clientSecretEnc)
-    : process.env.GOOGLE_CLIENT_SECRET;
+    : envClientSecret;
   const refreshToken = config.refreshTokenEnc
     ? decryptApiKey(config.refreshTokenEnc)
     : undefined;
