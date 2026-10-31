@@ -2,17 +2,19 @@ name: Publish Docker images to Docker Hub
 
 # Triggers:
 #   push to master  -> :edge
-#   git tag v*      -> :0.1.7, :0.1, and :latest (clean semver without internal sha or raw '0' tags)
-#   PR to master    -> build validation only (push: false)
+#   git tag v*      -> :0.1.7, :0.1, and :latest
+#   manual dispatch -> on-demand publishing
 on:
   push:
     branches: [master]
     tags:
       - "v*"
       - "v*.*.*"
-  pull_request:
-    branches: [master]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REALM_IMAGE: hypertextassassin/vaultrealm
